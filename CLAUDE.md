@@ -9,3 +9,5 @@ The functionality will be implemented by a less powerful AI, so the tickets will
 Please also consider CI/CD and set up the proper building process and releases.
 
 The code will be open source, so please has security in mind.
+
+If you ask clarification questions, it might be good to modify either this file or README.md
