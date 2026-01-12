@@ -7,3 +7,5 @@ Create plans, and use gh (Github tool) to create epics and specific tickets (iss
 The functionality will be implemented by a less powerful AI, so the tickets will need to be verbosely defined. When creating the ticket, specify the functionality, but also other concerns (like security) and maybe mention expected tests.
 
 Please also consider CI/CD and set up the proper building process and releases.
+
+The code will be open source, so please has security in mind.
