@@ -83,7 +83,7 @@ jobs:
         run: GOOS=darwin GOARCH=arm64 go build -o dist/my-own-vpn-darwin-arm64 ./cmd/my-own-vpn
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: binaries
           path: dist/
