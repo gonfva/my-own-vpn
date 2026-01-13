@@ -1,71 +1,74 @@
+version: "2"
 run:
-  timeout: 5m
   tests: true
-
 linters:
   enable:
-    - errcheck      # Check for unchecked errors
-    - gosimple      # Simplify code
-    - govet         # Reports suspicious constructs
-    - ineffassign   # Detect ineffectual assignments
-    - staticcheck   # Static analysis
-    - typecheck     # Type checking
-    - unused        # Check for unused code
-    - gosec         # Security issues
-    - gofmt         # Format checking
-    - goimports     # Import formatting
-    - misspell      # Spelling mistakes
-    - bodyclose     # HTTP response body close
-    - contextcheck  # Context usage
-    - nilerr        # nil error returns
-    - errorlint     # Error wrapping
-    - gocritic      # Various checks
-    - revive        # Fast, configurable linter
-
-linters-settings:
-  gosec:
-    excludes:
-      - G104  # Audit errors not checked (we'll handle explicitly)
-
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-    disabled-checks:
-      - hugeParam  # Can be noisy
-
-  revive:
+    - bodyclose
+    - contextcheck
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - revive
+  settings:
+    gocritic:
+      disabled-checks:
+        - hugeParam
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+    gosec:
+      excludes:
+        - G104
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: increment-decrement
+        - name: var-naming
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: exported
-      - name: increment-decrement
-      - name: var-naming
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: indent-error-flow
-      - name: errorf
-
+      - linters:
+          - gocritic
+          - gosec
+        path: _test\.go
+      - linters:
+          - lll
+        path: .*_generated\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-rules:
-    # Ignore certain linters in test files
-    - path: _test\.go
-      linters:
-        - gosec
-        - gocritic
-
-    # Ignore long lines in generated files
-    - path: ".*_generated\\.go"
-      linters:
-        - lll
-
   max-issues-per-linter: 0
   max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
