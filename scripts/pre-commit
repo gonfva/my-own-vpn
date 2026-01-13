@@ -1,0 +1,21 @@
+#!/bin/bash
+# Pre-commit hook for code quality
+
+echo "Running pre-commit checks..."
+
+# Format code
+gofmt -w .
+
+# Run linter
+if ! golangci-lint run; then
+    echo "Linting failed. Please fix the issues before committing."
+    exit 1
+fi
+
+# Run tests
+if ! go test ./...; then
+    echo "Tests failed. Please fix the issues before committing."
+    exit 1
+fi
+
+echo "All checks passed!"
