@@ -1,4 +1,4 @@
-.PHONY: all build test lint fmt clean tools check
+.PHONY: all build test lint fmt clean tools check security tools-security
 
 # Binary name
 BINARY_NAME=my-own-vpn
@@ -33,3 +33,12 @@ tools:
 
 # Run all checks (useful before committing)
 check: fmt lint test
+
+# Security scanning
+security:
+	govulncheck ./...
+
+# Install security tools
+tools-security:
+	go install golang.org/x/vuln/cmd/govulncheck@latest
+	go install github.com/securego/gosec/v2/cmd/gosec@latest
