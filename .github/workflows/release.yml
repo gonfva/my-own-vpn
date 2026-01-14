@@ -18,7 +18,7 @@ jobs:
             goos: windows
             goarch: amd64
             artifact: my-own-vpn-windows-amd64.exe
-          - os: macos-13  # Intel
+          - os: macos-15-intel
             goos: darwin
             goarch: amd64
             artifact: my-own-vpn-darwin-amd64
