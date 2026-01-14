@@ -9,13 +9,25 @@ import (
 // Version is set during build
 var Version = "dev"
 
+var (
+	tray           *ui.TrayApp
+	settingsWindow *ui.SettingsWindow
+)
+
 func main() {
 	fmt.Printf("My Own VPN v%s\n", Version)
 
-	// Create the system tray application
-	tray := ui.NewTrayApp()
+	// Create the settings window
+	settingsWindow = ui.NewSettingsWindow()
+	settingsWindow.SetOnSave(onSettingsSaved)
 
-	// Set up callbacks with placeholder implementations
+	// Start Fyne event loop in background goroutine
+	go settingsWindow.RunFyneLoop()
+
+	// Create the system tray application
+	tray = ui.NewTrayApp()
+
+	// Set up callbacks
 	tray.SetCallbacks(
 		onConnect,
 		onDisconnect,
@@ -36,9 +48,16 @@ func onDisconnect() {
 }
 
 func onSettings() {
-	fmt.Println("Settings clicked - not yet implemented")
+	settingsWindow.Show()
+}
+
+func onSettingsSaved(config ui.SettingsConfig) {
+	fmt.Printf("Settings saved - Provider: %s, Region: %s\n", config.Provider, config.Region)
+	// TODO: Store credentials in credential manager
+	// TODO: Update provider configuration
 }
 
 func onQuit() {
 	fmt.Println("Quit clicked - shutting down")
+	settingsWindow.StopFyneLoop()
 }
