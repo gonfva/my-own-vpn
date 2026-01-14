@@ -41,9 +41,8 @@ type SettingsWindow struct {
 	hetznerContainer  *fyne.Container
 
 	// Preferences
-	idleTimeoutCheck  *widget.Check
-	idleTimeoutEntry  *widget.Entry
-	idleTimeoutSlider *widget.Slider
+	idleTimeoutCheck *widget.Check
+	idleTimeoutEntry *widget.Entry
 
 	// Current config
 	currentConfig SettingsConfig
