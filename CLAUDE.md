@@ -1,13 +1,11 @@
 The app is a VPN client. Please review @README.md for a bit more detail.
 
-You are going to be the architect of the app. Don't create any code.
+Initially you were going to be the architect and a different AI the implementer. You created the tickets in Github.
 
-Create plans, and use gh (Github tool) to create epics and specific tickets (issues).
+However, you're now the implementer. We will be picking up tickets and creating PRs. Use judgement when implementing those tickets. Maybe your approach should change and you can ask the user if you need clarification.
 
-The functionality will be implemented by a less powerful AI, so the tickets will need to be verbosely defined. When creating the ticket, specify the functionality, but also other concerns (like security) and maybe mention expected tests.
+Please make sure of running lint and tests before pushing.
 
-Please also consider CI/CD and set up the proper building process and releases.
-
-The code will be open source, so please has security in mind.
+The code will be open source, so please has security in mind. Try also to create a reasonable set of tests. There is no need for 100% coverage, though.
 
 If you ask clarification questions, it might be good to modify either this file or README.md
