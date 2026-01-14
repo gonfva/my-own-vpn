@@ -70,14 +70,15 @@ func ValidateConfig(config SettingsConfig) []string {
 		errors = append(errors, "Region is required")
 	}
 
-	if config.Provider == ProviderAWS {
+	switch config.Provider {
+	case ProviderAWS:
 		if config.AWSAccessKey == "" {
 			errors = append(errors, "AWS Access Key ID is required")
 		}
 		if config.AWSSecretKey == "" {
 			errors = append(errors, "AWS Secret Access Key is required")
 		}
-	} else if config.Provider == ProviderHetzner {
+	case ProviderHetzner:
 		if config.HetznerToken == "" {
 			errors = append(errors, "Hetzner API Token is required")
 		}

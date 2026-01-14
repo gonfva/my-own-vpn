@@ -3,7 +3,7 @@ package ui
 import (
 	"sync"
 
-	"github.com/getlantern/systray"
+	"fyne.io/systray"
 )
 
 // ConnectionState represents the current VPN connection state
