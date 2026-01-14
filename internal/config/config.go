@@ -62,6 +62,7 @@ func Save(c *Config) error {
 
 // loadFromPath loads configuration from a specific path (used by Load and tests)
 func loadFromPath(path string) (*Config, error) {
+	// #nosec G304 -- Path is controlled by ConfigPath() using os.UserConfigDir()
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		// File doesn't exist - first run, return defaults

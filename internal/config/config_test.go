@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -321,8 +322,11 @@ func TestSaveCreatesDirectory(t *testing.T) {
 	}
 
 	// Verify directory permissions (0700)
-	if info.Mode().Perm() != 0700 {
-		t.Errorf("directory permissions should be 0700, got %o", info.Mode().Perm())
+	// Skip permission check on Windows as it doesn't support Unix permissions
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o700 {
+			t.Errorf("directory permissions should be 0700, got %o", info.Mode().Perm())
+		}
 	}
 }
 
@@ -344,8 +348,11 @@ func TestSaveFilePermissions(t *testing.T) {
 	}
 
 	// Verify file has 0600 permissions
-	if info.Mode().Perm() != 0600 {
-		t.Errorf("file permissions should be 0600, got %o", info.Mode().Perm())
+	// Skip permission check on Windows as it doesn't support Unix permissions
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("file permissions should be 0600, got %o", info.Mode().Perm())
+		}
 	}
 }
 
