@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/gonfva/my-own-vpn/internal/app"
+	"github.com/gonfva/my-own-vpn/internal/config"
 	"github.com/gonfva/my-own-vpn/internal/ui"
 )
 
@@ -15,18 +16,28 @@ var (
 	tray           *ui.TrayApp
 	settingsWindow *ui.SettingsWindow
 	controller     *app.Controller
+	appConfig      *config.Config
 )
 
 func main() {
 	fmt.Printf("My Own VPN v%s\n", Version)
+
+	// Load configuration
+	var err error
+	appConfig, err = config.Load()
+	if err != nil {
+		fmt.Printf("Failed to load config: %v\n", err)
+		appConfig = config.DefaultConfig()
+	}
 
 	// Create the controller
 	controller = app.NewController()
 	controller.SetOnStateChange(onControllerStateChange)
 	controller.SetOnError(onControllerError)
 
-	// Create the settings window
+	// Create the settings window and load config into it
 	settingsWindow = ui.NewSettingsWindow()
+	settingsWindow.LoadConfig(configToSettingsConfig(appConfig))
 	settingsWindow.SetOnSave(onSettingsSaved)
 
 	// Start Fyne event loop in background goroutine
@@ -69,10 +80,23 @@ func onSettings() {
 	settingsWindow.Show()
 }
 
-func onSettingsSaved(config ui.SettingsConfig) {
-	fmt.Printf("Settings saved - Provider: %s, Region: %s\n", config.Provider, config.Region)
+func onSettingsSaved(settingsConfig ui.SettingsConfig) {
+	fmt.Printf("Settings saved - Provider: %s, Region: %s\n", settingsConfig.Provider, settingsConfig.Region)
+
+	// Extract non-sensitive config
+	appConfig = settingsConfigToConfig(settingsConfig)
+
+	// Save to disk
+	if err := config.Save(appConfig); err != nil {
+		fmt.Printf("Failed to save config: %v\n", err)
+		tray.SetError(fmt.Sprintf("Failed to save settings: %v", err))
+		return
+	}
+
 	// TODO: Store credentials in credential manager
-	// TODO: Update provider configuration
+	// TODO: Update controller/provider with new config
+
+	fmt.Println("Configuration saved successfully")
 }
 
 func onQuit() {
@@ -103,4 +127,27 @@ func onControllerStateChange(state app.State, message string) {
 
 func onControllerError(err error) {
 	fmt.Printf("Controller error: %v\n", err)
+}
+
+// configToSettingsConfig converts Config to SettingsConfig (merge with empty credentials)
+func configToSettingsConfig(cfg *config.Config) ui.SettingsConfig {
+	return ui.SettingsConfig{
+		Provider:           cfg.Provider,
+		Region:             cfg.Region,
+		InstanceType:       cfg.InstanceType,
+		IdleTimeoutEnabled: cfg.IdleTimeoutEnabled,
+		IdleTimeoutMinutes: cfg.IdleTimeoutMinutes,
+		// Credentials left empty - will be loaded from credential manager in future
+	}
+}
+
+// settingsConfigToConfig extracts Config from SettingsConfig (strip credentials)
+func settingsConfigToConfig(settings ui.SettingsConfig) *config.Config {
+	return &config.Config{
+		Provider:           settings.Provider,
+		Region:             settings.Region,
+		InstanceType:       settings.InstanceType,
+		IdleTimeoutEnabled: settings.IdleTimeoutEnabled,
+		IdleTimeoutMinutes: settings.IdleTimeoutMinutes,
+	}
 }
