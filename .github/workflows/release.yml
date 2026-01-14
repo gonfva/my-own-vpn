@@ -32,7 +32,9 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Run tests
-        run: go test -v ./...
+        run: |
+          # Test packages that don't require CGO
+          go test -v ./internal/config/... ./internal/app/...
 
       - name: Build binaries
         run: |
