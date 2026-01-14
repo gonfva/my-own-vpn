@@ -11,10 +11,23 @@ permissions:
 jobs:
   release:
     name: Release
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            artifact: my-own-vpn-windows-amd64.exe
+          - os: macos-13  # Intel
+            goos: darwin
+            goarch: amd64
+            artifact: my-own-vpn-darwin-amd64
+          - os: macos-latest  # Apple Silicon
+            goos: darwin
+            goarch: arm64
+            artifact: my-own-vpn-darwin-arm64
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout code
@@ -29,26 +42,38 @@ jobs:
 
       - name: Get version from tag
         id: version
+        shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Run tests
+        run: go test -v ./internal/config/... ./internal/app/...
+
+      - name: Build binary
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          # Test packages that don't require CGO
-          go test -v ./internal/config/... ./internal/app/...
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o ${{ matrix.artifact }} ./cmd/my-own-vpn
 
-      - name: Build binaries
-        run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
-          LDFLAGS="-s -w -X main.Version=${VERSION}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
 
-          # Windows AMD64
-          GOOS=windows GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o dist/my-own-vpn-windows-amd64.exe ./cmd/my-own-vpn
+  create-release:
+    name: Create Release
+    needs: release
+    runs-on: ubuntu-latest
 
-          # macOS AMD64 (Intel)
-          GOOS=darwin GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o dist/my-own-vpn-darwin-amd64 ./cmd/my-own-vpn
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
 
-          # macOS ARM64 (Apple Silicon)
-          GOOS=darwin GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o dist/my-own-vpn-darwin-arm64 ./cmd/my-own-vpn
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Create checksums
         run: |
@@ -59,11 +84,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/my-own-vpn-windows-amd64.exe
-            dist/my-own-vpn-darwin-amd64
-            dist/my-own-vpn-darwin-arm64
-            dist/checksums.txt
+          files: dist/*
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
