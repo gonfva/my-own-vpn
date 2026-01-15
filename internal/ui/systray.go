@@ -151,6 +151,14 @@ func (t *TrayApp) UpdateStatus(status string, connected bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	// Always update state
+	if connected {
+		t.state = StateConnected
+	} else {
+		t.state = StateDisconnected
+	}
+
+	// Update UI only if Fyne app is available
 	if t.fyneApp == nil {
 		return
 	}
@@ -161,13 +169,11 @@ func (t *TrayApp) UpdateStatus(status string, connected bool) {
 	}
 
 	if connected {
-		t.state = StateConnected
 		desk.SetSystemTrayIcon(IconConnectedResource())
 		t.mConnect.Disabled = true
 		t.mDisconnect.Disabled = false
 		t.mCost.Disabled = false
 	} else {
-		t.state = StateDisconnected
 		desk.SetSystemTrayIcon(IconDisconnectedResource())
 		t.mConnect.Disabled = false
 		t.mDisconnect.Disabled = true
@@ -182,6 +188,10 @@ func (t *TrayApp) SetConnecting() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	// Always update state
+	t.state = StateConnecting
+
+	// Update UI only if Fyne app is available
 	if t.fyneApp == nil {
 		return
 	}
@@ -191,7 +201,6 @@ func (t *TrayApp) SetConnecting() {
 		return
 	}
 
-	t.state = StateConnecting
 	desk.SetSystemTrayIcon(IconConnectingResource())
 	t.mStatus.Label = "Status: Connecting..."
 	t.mConnect.Disabled = true
@@ -203,6 +212,10 @@ func (t *TrayApp) SetDisconnecting() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	// Always update state
+	t.state = StateDisconnecting
+
+	// Update UI only if Fyne app is available
 	if t.fyneApp == nil {
 		return
 	}
@@ -212,7 +225,6 @@ func (t *TrayApp) SetDisconnecting() {
 		return
 	}
 
-	t.state = StateDisconnecting
 	desk.SetSystemTrayIcon(IconConnectingResource()) // Use same icon for transitional states
 	t.mStatus.Label = "Status: Disconnecting..."
 	t.mConnect.Disabled = true
@@ -235,6 +247,10 @@ func (t *TrayApp) SetError(message string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	// Always update state
+	t.state = StateError
+
+	// Update UI only if Fyne app is available
 	if t.fyneApp == nil {
 		return
 	}
@@ -244,7 +260,6 @@ func (t *TrayApp) SetError(message string) {
 		return
 	}
 
-	t.state = StateError
 	desk.SetSystemTrayIcon(IconErrorResource())
 	t.mStatus.Label = "Status: Error - " + message
 	t.mConnect.Disabled = false
