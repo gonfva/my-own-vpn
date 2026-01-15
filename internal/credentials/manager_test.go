@@ -190,22 +190,22 @@ func TestManagerErrorHandling(t *testing.T) {
 	mgr.SetError(testErr)
 
 	// All operations should return the error
-	if err := mgr.SaveAWS(ctx, AWSCredentials{}); err != testErr {
+	if err := mgr.SaveAWS(ctx, AWSCredentials{}); !errors.Is(err, testErr) {
 		t.Errorf("SaveAWS error mismatch: got %v, want %v", err, testErr)
 	}
-	if _, err := mgr.LoadAWS(ctx); err != testErr {
+	if _, err := mgr.LoadAWS(ctx); !errors.Is(err, testErr) {
 		t.Errorf("LoadAWS error mismatch: got %v, want %v", err, testErr)
 	}
-	if err := mgr.DeleteAWS(ctx); err != testErr {
+	if err := mgr.DeleteAWS(ctx); !errors.Is(err, testErr) {
 		t.Errorf("DeleteAWS error mismatch: got %v, want %v", err, testErr)
 	}
-	if err := mgr.SaveHetzner(ctx, HetznerCredentials{}); err != testErr {
+	if err := mgr.SaveHetzner(ctx, HetznerCredentials{}); !errors.Is(err, testErr) {
 		t.Errorf("SaveHetzner error mismatch: got %v, want %v", err, testErr)
 	}
-	if _, err := mgr.LoadHetzner(ctx); err != testErr {
+	if _, err := mgr.LoadHetzner(ctx); !errors.Is(err, testErr) {
 		t.Errorf("LoadHetzner error mismatch: got %v, want %v", err, testErr)
 	}
-	if err := mgr.DeleteHetzner(ctx); err != testErr {
+	if err := mgr.DeleteHetzner(ctx); !errors.Is(err, testErr) {
 		t.Errorf("DeleteHetzner error mismatch: got %v, want %v", err, testErr)
 	}
 }
