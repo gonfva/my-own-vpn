@@ -77,6 +77,7 @@ func deriveKey(configDir string) ([keySize]byte, error) {
 	var key [keySize]byte
 
 	saltPath := filepath.Join(configDir, saltFileName)
+	// #nosec G304 -- saltPath is constructed from os.UserConfigDir() and a constant filename
 	salt, err := os.ReadFile(saltPath)
 	if err != nil {
 		// Create new random salt
@@ -134,6 +135,7 @@ func (m *fallbackManager) decrypt(encrypted []byte) ([]byte, error) {
 
 // loadStore reads and decrypts the credential store from disk
 func (m *fallbackManager) loadStore() (*encryptedStore, error) {
+	// #nosec G304 -- m.path is constructed from os.UserConfigDir() and a constant filename
 	data, err := os.ReadFile(m.path)
 	if err != nil {
 		if os.IsNotExist(err) {
