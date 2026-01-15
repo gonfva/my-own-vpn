@@ -81,6 +81,10 @@ jobs:
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.out ./...
 
+      - name: Run integration tests (macOS)
+        if: runner.os == 'macOS'
+        run: go test -v -tags=integration ./internal/credentials/...
+
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v5
