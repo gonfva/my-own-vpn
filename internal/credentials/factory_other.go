@@ -3,11 +3,10 @@
 package credentials
 
 // NewManager creates the appropriate credential manager for the current platform.
-// On unsupported platforms, this returns ErrNoImplementation until platform-specific
-// implementations are added (Linux Secret Service, etc.)
+// On Linux and other platforms, this uses the encrypted file fallback storage.
+// In the future, this could be enhanced to use Linux Secret Service when available.
 func NewManager() (Manager, error) {
-	// TODO: Add Linux Secret Service implementation
-	// TODO: Fall back to encrypted file storage
-
-	return nil, ErrNoImplementation
+	// TODO: Add Linux Secret Service implementation and use it when available
+	// For now, use encrypted file fallback
+	return newFallbackManager()
 }

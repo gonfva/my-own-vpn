@@ -3,20 +3,18 @@
 package credentials
 
 import (
-	"errors"
 	"testing"
 )
 
 func TestNewManager(t *testing.T) {
-	// On non-darwin platforms, NewManager returns ErrNoImplementation
-	// until platform-specific implementations are added
+	// On Linux and other platforms, NewManager returns a fallbackManager
 	mgr, err := NewManager()
 
-	if mgr != nil {
-		t.Error("Expected nil manager on non-darwin platforms")
+	if err != nil {
+		t.Errorf("NewManager() failed: %v", err)
 	}
 
-	if !errors.Is(err, ErrNoImplementation) {
-		t.Errorf("Expected ErrNoImplementation, got: %v", err)
+	if mgr == nil {
+		t.Error("Expected non-nil manager on Linux/other platforms")
 	}
 }
