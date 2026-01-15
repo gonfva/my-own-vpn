@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -251,6 +252,10 @@ func TestFallbackManagerPersistence(t *testing.T) {
 }
 
 func TestFallbackManagerFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file permissions are not enforced on Windows")
+	}
+
 	tempDir := t.TempDir()
 	mgr, err := createTestFallbackManager(tempDir)
 	if err != nil {
