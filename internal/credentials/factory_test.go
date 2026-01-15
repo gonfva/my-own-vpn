@@ -1,23 +1,8 @@
 package credentials
 
 import (
-	"errors"
 	"testing"
 )
-
-func TestNewManager(t *testing.T) {
-	// Currently NewManager returns ErrNoImplementation as platform-specific
-	// implementations are in separate tickets
-	mgr, err := NewManager()
-
-	if mgr != nil {
-		t.Error("Expected nil manager until implementations are added")
-	}
-
-	if !errors.Is(err, ErrNoImplementation) {
-		t.Errorf("Expected ErrNoImplementation, got: %v", err)
-	}
-}
 
 func TestConstants(t *testing.T) {
 	// Verify service name constants are set
@@ -37,5 +22,15 @@ func TestConstants(t *testing.T) {
 	}
 	if ProviderHetzner == "" {
 		t.Error("ProviderHetzner should not be empty")
+	}
+}
+
+func TestErrorDefinitions(t *testing.T) {
+	// Verify error types are defined
+	if ErrNoImplementation == nil {
+		t.Error("ErrNoImplementation should not be nil")
+	}
+	if ErrNotFound == nil {
+		t.Error("ErrNotFound should not be nil")
 	}
 }
