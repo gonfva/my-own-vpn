@@ -43,7 +43,10 @@ jobs:
       - name: Get version from tag
         id: version
         shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        run: |
+          # Strip 'v' prefix from tag (v0.0.5 -> 0.0.5)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Run tests
         run: go test -v ./internal/config/... ./internal/app/...

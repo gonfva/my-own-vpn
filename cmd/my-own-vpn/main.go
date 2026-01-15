@@ -55,8 +55,11 @@ func main() {
 		onQuit,
 	)
 
-	// Initialize the system tray menu
-	tray.Setup()
+	// Initialize the system tray menu after Fyne app has started
+	// (systray requires the event loop to be running)
+	settingsWindow.SetOnStarted(func() {
+		tray.Setup()
+	})
 
 	// Run Fyne event loop on main goroutine (required by GLFW on Windows/macOS)
 	// This blocks until Quit is called
