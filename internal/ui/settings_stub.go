@@ -29,6 +29,14 @@ func (s *SettingsWindow) GetFyneApp() interface{} {
 	return nil
 }
 
+// SetOnStarted registers a callback (stub - calls immediately without CGO)
+func (s *SettingsWindow) SetOnStarted(callback func()) {
+	// In stub implementation, just call immediately since there's no event loop
+	if callback != nil {
+		callback()
+	}
+}
+
 // Show displays the settings window (stub - no-op without CGO)
 func (s *SettingsWindow) Show() {
 	s.mu.Lock()

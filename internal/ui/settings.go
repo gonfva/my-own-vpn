@@ -78,6 +78,16 @@ func (s *SettingsWindow) GetFyneApp() fyne.App {
 	return s.fyneApp
 }
 
+// SetOnStarted registers a callback to be called when the Fyne app has started
+func (s *SettingsWindow) SetOnStarted(callback func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fyneApp == nil {
+		s.fyneApp = app.New()
+	}
+	s.fyneApp.Lifecycle().SetOnStarted(callback)
+}
+
 // Show displays the settings window
 func (s *SettingsWindow) Show() {
 	s.mu.Lock()
