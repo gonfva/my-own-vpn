@@ -137,3 +137,32 @@ func TestIconFunctions(t *testing.T) {
 		t.Error("connected and error icons should be different")
 	}
 }
+
+func TestSetup(t *testing.T) {
+	app := NewTrayApp()
+
+	// Setup should not panic without a Fyne app (graceful no-op)
+	app.Setup()
+
+	// State should still be disconnected
+	if app.GetState() != StateDisconnected {
+		t.Errorf("expected StateDisconnected after Setup, got %v", app.GetState())
+	}
+}
+
+func TestUpdateMethods(t *testing.T) {
+	app := NewTrayApp()
+
+	// These methods should not panic without a Fyne app (graceful no-op)
+	app.UpdateStatus("Test", true)
+	app.SetConnecting()
+	app.SetDisconnecting()
+	app.UpdateCost("$1.23")
+	app.SetError("test error")
+	app.Quit()
+
+	// After SetError, state should be StateError
+	if app.GetState() != StateError {
+		t.Errorf("expected StateError after SetError, got %v", app.GetState())
+	}
+}

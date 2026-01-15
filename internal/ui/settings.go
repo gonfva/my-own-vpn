@@ -61,11 +61,21 @@ func NewSettingsWindow() *SettingsWindow {
 	return s
 }
 
-// initFyneApp initializes the Fyne application if not already initialized
-func (s *SettingsWindow) initFyneApp() {
+// SetFyneApp sets the Fyne application instance
+func (s *SettingsWindow) SetFyneApp(fyneApp fyne.App) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fyneApp = fyneApp
+}
+
+// GetFyneApp returns the Fyne application instance, creating one if needed
+func (s *SettingsWindow) GetFyneApp() fyne.App {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.fyneApp == nil {
 		s.fyneApp = app.New()
 	}
+	return s.fyneApp
 }
 
 // Show displays the settings window
@@ -73,7 +83,9 @@ func (s *SettingsWindow) Show() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.initFyneApp()
+	if s.fyneApp == nil {
+		s.fyneApp = app.New()
+	}
 
 	if s.window == nil {
 		s.createWindow()
@@ -451,14 +463,17 @@ func joinErrors(errors []string) string {
 }
 
 // RunFyneLoop starts the Fyne event loop
-// This should be called in a separate goroutine
+// This must be called from the main goroutine
 func (s *SettingsWindow) RunFyneLoop() {
 	s.mu.Lock()
-	s.initFyneApp()
+	if s.fyneApp == nil {
+		s.fyneApp = app.New()
+	}
+	fyneApp := s.fyneApp
 	s.mu.Unlock()
 
-	// Run the Fyne event loop
-	s.fyneApp.Run()
+	// Run the Fyne event loop (blocks until Quit is called)
+	fyneApp.Run()
 }
 
 // StopFyneLoop stops the Fyne event loop

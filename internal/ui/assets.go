@@ -2,6 +2,8 @@ package ui
 
 import (
 	"embed"
+
+	"fyne.io/fyne/v2"
 )
 
 // Icon assets for system tray states
@@ -34,4 +36,24 @@ func IconConnected() []byte {
 func IconError() []byte {
 	data, _ := iconFS.ReadFile("assets/error.png")
 	return data
+}
+
+// IconDisconnectedResource returns the disconnected icon as a Fyne Resource
+func IconDisconnectedResource() fyne.Resource {
+	return fyne.NewStaticResource("disconnected.png", IconDisconnected())
+}
+
+// IconConnectingResource returns the connecting icon as a Fyne Resource
+func IconConnectingResource() fyne.Resource {
+	return fyne.NewStaticResource("connecting.png", IconConnecting())
+}
+
+// IconConnectedResource returns the connected icon as a Fyne Resource
+func IconConnectedResource() fyne.Resource {
+	return fyne.NewStaticResource("connected.png", IconConnected())
+}
+
+// IconErrorResource returns the error icon as a Fyne Resource
+func IconErrorResource() fyne.Resource {
+	return fyne.NewStaticResource("error.png", IconError())
 }

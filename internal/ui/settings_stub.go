@@ -19,6 +19,16 @@ func NewSettingsWindow() *SettingsWindow {
 	}
 }
 
+// SetFyneApp sets the Fyne application instance (stub - no-op without CGO)
+func (s *SettingsWindow) SetFyneApp(fyneApp interface{}) {
+	// No-op in stub implementation
+}
+
+// GetFyneApp returns nil in stub implementation (no Fyne app without CGO)
+func (s *SettingsWindow) GetFyneApp() interface{} {
+	return nil
+}
+
 // Show displays the settings window (stub - no-op without CGO)
 func (s *SettingsWindow) Show() {
 	s.mu.Lock()
