@@ -2,12 +2,10 @@ module github.com/gonfva/my-own-vpn
 
 go 1.24.3
 
-require (
-	fyne.io/fyne/v2 v2.7.2
-	fyne.io/systray v1.12.0
-)
+require fyne.io/fyne/v2 v2.7.2
 
 require (
+	fyne.io/systray v1.12.0 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect

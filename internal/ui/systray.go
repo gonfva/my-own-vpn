@@ -1,9 +1,12 @@
+//go:build cgo
+
 package ui
 
 import (
 	"sync"
 
-	"fyne.io/systray"
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/driver/desktop"
 )
 
 // ConnectionState represents the current VPN connection state
@@ -21,17 +24,16 @@ const (
 type TrayApp struct {
 	mu sync.RWMutex
 
-	state    ConnectionState
-	cost     string
-	errorMsg string
+	fyneApp fyne.App
+	state   ConnectionState
+	cost    string
 
 	// Menu items
-	mStatus     *systray.MenuItem
-	mConnect    *systray.MenuItem
-	mDisconnect *systray.MenuItem
-	mSettings   *systray.MenuItem
-	mCost       *systray.MenuItem
-	mQuit       *systray.MenuItem
+	mStatus     *fyne.MenuItem
+	mConnect    *fyne.MenuItem
+	mDisconnect *fyne.MenuItem
+	mSettings   *fyne.MenuItem
+	mCost       *fyne.MenuItem
 
 	// Callbacks
 	onConnect    func()
@@ -48,6 +50,13 @@ func NewTrayApp() *TrayApp {
 	}
 }
 
+// SetFyneApp sets the Fyne application instance
+func (t *TrayApp) SetFyneApp(app fyne.App) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.fyneApp = app
+}
+
 // SetCallbacks sets the callback functions for menu actions
 func (t *TrayApp) SetCallbacks(onConnect, onDisconnect, onSettings, onQuit func()) {
 	t.mu.Lock()
@@ -58,84 +67,82 @@ func (t *TrayApp) SetCallbacks(onConnect, onDisconnect, onSettings, onQuit func(
 	t.onQuit = onQuit
 }
 
-// Run starts the system tray application (blocks until quit)
-func (t *TrayApp) Run() {
-	systray.Run(t.onReady, t.onExit)
-}
+// Setup initializes the system tray menu and icon
+func (t *TrayApp) Setup() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-// onReady is called when the systray is ready
-func (t *TrayApp) onReady() {
-	// Set initial icon and tooltip
-	systray.SetIcon(IconDisconnected())
-	systray.SetTitle("My Own VPN")
-	systray.SetTooltip("My Own VPN - Disconnected")
+	if t.fyneApp == nil {
+		return
+	}
 
-	// Create menu items
-	t.mStatus = systray.AddMenuItem("Status: Disconnected", "Current connection status")
-	t.mStatus.Disable()
+	// Check if the app supports desktop features (system tray)
+	if desk, ok := t.fyneApp.(desktop.App); ok {
+		// Set the system tray icon
+		desk.SetSystemTrayIcon(IconDisconnectedResource())
 
-	systray.AddSeparator()
+		// Create menu items
+		t.mStatus = fyne.NewMenuItem("Status: Disconnected", nil)
+		t.mStatus.Disabled = true
 
-	t.mConnect = systray.AddMenuItem("Connect", "Connect to VPN")
-	t.mDisconnect = systray.AddMenuItem("Disconnect", "Disconnect from VPN")
-	t.mDisconnect.Hide()
-
-	t.mSettings = systray.AddMenuItem("Settings...", "Open settings")
-
-	systray.AddSeparator()
-
-	t.mCost = systray.AddMenuItem("Session Cost: $0.00", "Current session cost")
-	t.mCost.Disable()
-	t.mCost.Hide()
-
-	systray.AddSeparator()
-
-	t.mQuit = systray.AddMenuItem("Quit", "Exit application")
-
-	// Start menu event handler
-	go t.handleMenuEvents()
-}
-
-// onExit is called when the systray is exiting
-func (t *TrayApp) onExit() {
-	// Cleanup if needed
-}
-
-// handleMenuEvents handles menu click events
-func (t *TrayApp) handleMenuEvents() {
-	for {
-		select {
-		case <-t.mConnect.ClickedCh:
+		t.mConnect = fyne.NewMenuItem("Connect", func() {
 			t.mu.RLock()
 			cb := t.onConnect
 			t.mu.RUnlock()
 			if cb != nil {
 				go cb()
 			}
-		case <-t.mDisconnect.ClickedCh:
+		})
+
+		t.mDisconnect = fyne.NewMenuItem("Disconnect", func() {
 			t.mu.RLock()
 			cb := t.onDisconnect
 			t.mu.RUnlock()
 			if cb != nil {
 				go cb()
 			}
-		case <-t.mSettings.ClickedCh:
+		})
+
+		t.mSettings = fyne.NewMenuItem("Settings...", func() {
 			t.mu.RLock()
 			cb := t.onSettings
 			t.mu.RUnlock()
 			if cb != nil {
 				go cb()
 			}
-		case <-t.mQuit.ClickedCh:
+		})
+
+		t.mCost = fyne.NewMenuItem("Session Cost: $0.00", nil)
+		t.mCost.Disabled = true
+
+		quitItem := fyne.NewMenuItem("Quit", func() {
 			t.mu.RLock()
 			cb := t.onQuit
 			t.mu.RUnlock()
 			if cb != nil {
 				cb()
 			}
-			systray.Quit()
-			return
-		}
+			t.fyneApp.Quit()
+		})
+
+		// Build the menu
+		menu := fyne.NewMenu("My Own VPN",
+			t.mStatus,
+			fyne.NewMenuItemSeparator(),
+			t.mConnect,
+			t.mDisconnect,
+			t.mSettings,
+			fyne.NewMenuItemSeparator(),
+			t.mCost,
+			fyne.NewMenuItemSeparator(),
+			quitItem,
+		)
+
+		// Set initial visibility
+		t.mDisconnect.Disabled = true
+		t.mCost.Disabled = true
+
+		desk.SetSystemTrayMenu(menu)
 	}
 }
 
@@ -144,25 +151,30 @@ func (t *TrayApp) UpdateStatus(status string, connected bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if connected {
-		t.state = StateConnected
-		systray.SetIcon(IconConnected())
-		systray.SetTooltip("My Own VPN - Connected")
-		t.mConnect.Hide()
-		t.mDisconnect.Show()
-		t.mCost.Show()
-	} else {
-		t.state = StateDisconnected
-		systray.SetIcon(IconDisconnected())
-		systray.SetTooltip("My Own VPN - Disconnected")
-		t.mConnect.Show()
-		t.mDisconnect.Hide()
-		t.mCost.Hide()
+	if t.fyneApp == nil {
+		return
 	}
 
-	t.mStatus.SetTitle("Status: " + status)
-	t.mConnect.Enable()
-	t.mDisconnect.Enable()
+	desk, ok := t.fyneApp.(desktop.App)
+	if !ok {
+		return
+	}
+
+	if connected {
+		t.state = StateConnected
+		desk.SetSystemTrayIcon(IconConnectedResource())
+		t.mConnect.Disabled = true
+		t.mDisconnect.Disabled = false
+		t.mCost.Disabled = false
+	} else {
+		t.state = StateDisconnected
+		desk.SetSystemTrayIcon(IconDisconnectedResource())
+		t.mConnect.Disabled = false
+		t.mDisconnect.Disabled = true
+		t.mCost.Disabled = true
+	}
+
+	t.mStatus.Label = "Status: " + status
 }
 
 // SetConnecting updates the UI for connecting state
@@ -170,12 +182,20 @@ func (t *TrayApp) SetConnecting() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if t.fyneApp == nil {
+		return
+	}
+
+	desk, ok := t.fyneApp.(desktop.App)
+	if !ok {
+		return
+	}
+
 	t.state = StateConnecting
-	systray.SetIcon(IconConnecting())
-	systray.SetTooltip("My Own VPN - Connecting...")
-	t.mStatus.SetTitle("Status: Connecting...")
-	t.mConnect.Disable()
-	t.mDisconnect.Disable()
+	desk.SetSystemTrayIcon(IconConnectingResource())
+	t.mStatus.Label = "Status: Connecting..."
+	t.mConnect.Disabled = true
+	t.mDisconnect.Disabled = true
 }
 
 // SetDisconnecting updates the UI for disconnecting state
@@ -183,12 +203,20 @@ func (t *TrayApp) SetDisconnecting() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if t.fyneApp == nil {
+		return
+	}
+
+	desk, ok := t.fyneApp.(desktop.App)
+	if !ok {
+		return
+	}
+
 	t.state = StateDisconnecting
-	systray.SetIcon(IconConnecting()) // Use same icon for transitional states
-	systray.SetTooltip("My Own VPN - Disconnecting...")
-	t.mStatus.SetTitle("Status: Disconnecting...")
-	t.mConnect.Disable()
-	t.mDisconnect.Disable()
+	desk.SetSystemTrayIcon(IconConnectingResource()) // Use same icon for transitional states
+	t.mStatus.Label = "Status: Disconnecting..."
+	t.mConnect.Disabled = true
+	t.mDisconnect.Disabled = true
 }
 
 // UpdateCost updates the displayed session cost
@@ -198,7 +226,7 @@ func (t *TrayApp) UpdateCost(cost string) {
 
 	t.cost = cost
 	if t.mCost != nil {
-		t.mCost.SetTitle("Session Cost: " + cost)
+		t.mCost.Label = "Session Cost: " + cost
 	}
 }
 
@@ -207,15 +235,21 @@ func (t *TrayApp) SetError(message string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if t.fyneApp == nil {
+		return
+	}
+
+	desk, ok := t.fyneApp.(desktop.App)
+	if !ok {
+		return
+	}
+
 	t.state = StateError
-	t.errorMsg = message
-	systray.SetIcon(IconError())
-	systray.SetTooltip("My Own VPN - Error")
-	t.mStatus.SetTitle("Status: Error - " + message)
-	t.mConnect.Show()
-	t.mConnect.Enable()
-	t.mDisconnect.Hide()
-	t.mCost.Hide()
+	desk.SetSystemTrayIcon(IconErrorResource())
+	t.mStatus.Label = "Status: Error - " + message
+	t.mConnect.Disabled = false
+	t.mDisconnect.Disabled = true
+	t.mCost.Disabled = true
 }
 
 // GetState returns the current connection state
@@ -227,5 +261,11 @@ func (t *TrayApp) GetState() ConnectionState {
 
 // Quit triggers a clean shutdown of the tray application
 func (t *TrayApp) Quit() {
-	systray.Quit()
+	t.mu.RLock()
+	app := t.fyneApp
+	t.mu.RUnlock()
+
+	if app != nil {
+		app.Quit()
+	}
 }

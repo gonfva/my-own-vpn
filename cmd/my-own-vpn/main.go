@@ -35,16 +35,17 @@ func main() {
 	controller.SetOnStateChange(onControllerStateChange)
 	controller.SetOnError(onControllerError)
 
-	// Create the settings window and load config into it
+	// Create the settings window and get the shared Fyne app
 	settingsWindow = ui.NewSettingsWindow()
+	fyneApp := settingsWindow.GetFyneApp()
+
+	// Load config into settings window
 	settingsWindow.LoadConfig(configToSettingsConfig(appConfig))
 	settingsWindow.SetOnSave(onSettingsSaved)
 
-	// Start Fyne event loop in background goroutine
-	go settingsWindow.RunFyneLoop()
-
-	// Create the system tray application
+	// Create the system tray application with shared Fyne app
 	tray = ui.NewTrayApp()
+	tray.SetFyneApp(fyneApp)
 
 	// Set up callbacks
 	tray.SetCallbacks(
@@ -54,8 +55,12 @@ func main() {
 		onQuit,
 	)
 
-	// Run the system tray (blocks until quit)
-	tray.Run()
+	// Initialize the system tray menu
+	tray.Setup()
+
+	// Run Fyne event loop on main goroutine (required by GLFW on Windows/macOS)
+	// This blocks until Quit is called
+	settingsWindow.RunFyneLoop()
 }
 
 func onConnect() {
@@ -101,7 +106,7 @@ func onSettingsSaved(settingsConfig ui.SettingsConfig) {
 
 func onQuit() {
 	fmt.Println("Quit clicked - shutting down")
-	settingsWindow.StopFyneLoop()
+	// The Fyne app quit is handled by the tray's quit menu item callback
 }
 
 func onControllerStateChange(state app.State, message string) {
