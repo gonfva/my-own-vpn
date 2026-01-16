@@ -28,6 +28,9 @@ type Provider struct {
 	stsClient *sts.Client
 	region    string
 
+	// Session ID for tagging and identifying resources
+	sessionID string
+
 	// Track created resources for cleanup (will be populated by Provision)
 	vpcID             string
 	internetGatewayID string
@@ -107,11 +110,25 @@ func (p *Provider) ListRegions(ctx context.Context) ([]provider.Region, error) {
 // It creates networking resources, launches an EC2 instance with WireGuard,
 // and waits for the server to be ready.
 func (p *Provider) Provision(ctx context.Context, cfg provider.ProvisionConfig) (*provider.ServerInfo, error) {
+	// Generate a unique session ID for this provisioning session
+	sessionID, err := generateSessionID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate session ID: %w", err)
+	}
+	p.sessionID = sessionID
+
 	// Step 1: Create networking infrastructure (VPC, IGW, Subnet, Route Table, Security Group)
 	if err := p.createNetworking(ctx); err != nil {
 		// Attempt to clean up any partially created resources
 		_ = p.deleteNetworking(ctx)
+		_ = clearState()
 		return nil, fmt.Errorf("failed to create networking: %w", err)
+	}
+
+	// Save state after networking is created
+	if err := p.saveState(); err != nil {
+		// Log but don't fail - state persistence is for recovery
+		fmt.Printf("Warning: failed to save state: %v\n", err)
 	}
 
 	// Step 2: Launch EC2 instance with WireGuard user-data
@@ -119,7 +136,13 @@ func (p *Provider) Provision(ctx context.Context, cfg provider.ProvisionConfig) 
 		// Clean up on failure
 		_ = p.deleteKeyPair(ctx)
 		_ = p.deleteNetworking(ctx)
+		_ = clearState()
 		return nil, fmt.Errorf("failed to launch instance: %w", err)
+	}
+
+	// Save state after instance is launched
+	if err := p.saveState(); err != nil {
+		fmt.Printf("Warning: failed to save state: %v\n", err)
 	}
 
 	// Step 3: Wait for instance to be running
@@ -128,6 +151,7 @@ func (p *Provider) Provision(ctx context.Context, cfg provider.ProvisionConfig) 
 		_ = p.terminateInstance(ctx)
 		_ = p.deleteKeyPair(ctx)
 		_ = p.deleteNetworking(ctx)
+		_ = clearState()
 		return nil, fmt.Errorf("failed waiting for instance: %w", err)
 	}
 
@@ -138,6 +162,7 @@ func (p *Provider) Provision(ctx context.Context, cfg provider.ProvisionConfig) 
 		_ = p.terminateInstance(ctx)
 		_ = p.deleteKeyPair(ctx)
 		_ = p.deleteNetworking(ctx)
+		_ = clearState()
 		return nil, fmt.Errorf("failed to get public IP: %w", err)
 	}
 	p.serverPublicIP = publicIP
@@ -149,9 +174,15 @@ func (p *Provider) Provision(ctx context.Context, cfg provider.ProvisionConfig) 
 		_ = p.terminateInstance(ctx)
 		_ = p.deleteKeyPair(ctx)
 		_ = p.deleteNetworking(ctx)
+		_ = clearState()
 		return nil, fmt.Errorf("failed waiting for WireGuard: %w", err)
 	}
 	p.serverPublicKey = pubKey
+
+	// Save final state
+	if err := p.saveState(); err != nil {
+		fmt.Printf("Warning: failed to save state: %v\n", err)
+	}
 
 	return &provider.ServerInfo{
 		PublicIP:        publicIP,
@@ -187,6 +218,12 @@ func (p *Provider) Deprovision(ctx context.Context) error {
 	// Clear cached server info
 	p.serverPublicKey = ""
 	p.serverPublicIP = ""
+	p.sessionID = ""
+
+	// Clear persisted state
+	if err := clearState(); err != nil {
+		errs = append(errs, fmt.Errorf("clear state: %w", err))
+	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("failed to deprovision: %v", errs)
@@ -306,6 +343,37 @@ func regionDisplayName(regionID string) string {
 		return name
 	}
 	return regionID
+}
+
+// CleanupOrphaned finds and cleans up any orphaned resources that may have been
+// left behind due to a crash or improper shutdown. It first checks for persisted
+// state, then falls back to discovering resources by tags.
+func (p *Provider) CleanupOrphaned(ctx context.Context) error {
+	// First, try to load state from disk
+	loaded, err := p.LoadExistingState()
+	if err != nil {
+		return fmt.Errorf("failed to load existing state: %w", err)
+	}
+
+	// If no state was loaded, try to find resources by tags
+	if !loaded {
+		if err := p.findResourcesByTag(ctx); err != nil {
+			return fmt.Errorf("failed to find resources by tag: %w", err)
+		}
+	}
+
+	// If no resources found, nothing to clean up
+	if !p.HasProvisionedResources() {
+		return nil
+	}
+
+	// Deprovision found resources
+	return p.Deprovision(ctx)
+}
+
+// GetSessionID returns the current session ID.
+func (p *Provider) GetSessionID() string {
+	return p.sessionID
 }
 
 // Ensure Provider implements provider.Provider at compile time
