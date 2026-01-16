@@ -121,20 +121,25 @@ func TestListRegions(t *testing.T) {
 	}
 }
 
-func TestProvisionNotImplemented(t *testing.T) {
+func TestProvisionFailsWithInvalidCredentials(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
 	ctx := context.Background()
 
-	p, err := New(ctx, "test-access-key", "test-secret-key", "us-east-1")
+	p, err := New(ctx, "INVALID_ACCESS_KEY", "invalid_secret_key", "us-east-1")
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
+	// Provision should fail due to invalid credentials when trying to create VPC
 	_, err = p.Provision(ctx, provider.ProvisionConfig{
 		Region:       "us-east-1",
 		InstanceType: "t3.micro",
 	})
-	if !errors.Is(err, ErrNotImplemented) {
-		t.Errorf("expected ErrNotImplemented, got: %v", err)
+	if err == nil {
+		t.Error("expected error for invalid credentials during provision")
 	}
 }
 

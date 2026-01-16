@@ -35,6 +35,11 @@ type Provider struct {
 	routeTableID      string
 	securityGroupID   string
 	instanceID        string
+	keyPairName       string
+
+	// Cached server info for GetStatus
+	serverPublicKey string
+	serverPublicIP  string
 }
 
 // New creates a new AWS provider with the given credentials and region.
@@ -99,40 +104,98 @@ func (p *Provider) ListRegions(ctx context.Context) ([]provider.Region, error) {
 }
 
 // Provision creates all necessary AWS infrastructure for a VPN server.
-// This is a stub implementation that will be completed in subsequent issues.
+// It creates networking resources, launches an EC2 instance with WireGuard,
+// and waits for the server to be ready.
 func (p *Provider) Provision(ctx context.Context, cfg provider.ProvisionConfig) (*provider.ServerInfo, error) {
-	// TODO: Implement in subsequent issues:
-	// 1. Create VPC
-	// 2. Create subnet
-	// 3. Create Internet Gateway
-	// 4. Create route table
-	// 5. Create security group
-	// 6. Create key pair
-	// 7. Launch EC2 instance
-	// 8. Wait for instance to be running
-	// 9. Configure WireGuard on instance
-	return nil, ErrNotImplemented
+	// Step 1: Create networking infrastructure (VPC, IGW, Subnet, Route Table, Security Group)
+	if err := p.createNetworking(ctx); err != nil {
+		// Attempt to clean up any partially created resources
+		_ = p.deleteNetworking(ctx)
+		return nil, fmt.Errorf("failed to create networking: %w", err)
+	}
+
+	// Step 2: Launch EC2 instance with WireGuard user-data
+	if err := p.launchInstance(ctx, cfg.InstanceType); err != nil {
+		// Clean up on failure
+		_ = p.deleteKeyPair(ctx)
+		_ = p.deleteNetworking(ctx)
+		return nil, fmt.Errorf("failed to launch instance: %w", err)
+	}
+
+	// Step 3: Wait for instance to be running
+	if err := p.waitForInstanceRunning(ctx); err != nil {
+		// Clean up on failure
+		_ = p.terminateInstance(ctx)
+		_ = p.deleteKeyPair(ctx)
+		_ = p.deleteNetworking(ctx)
+		return nil, fmt.Errorf("failed waiting for instance: %w", err)
+	}
+
+	// Step 4: Get the public IP
+	publicIP, err := p.getInstancePublicIP(ctx)
+	if err != nil {
+		// Clean up on failure
+		_ = p.terminateInstance(ctx)
+		_ = p.deleteKeyPair(ctx)
+		_ = p.deleteNetworking(ctx)
+		return nil, fmt.Errorf("failed to get public IP: %w", err)
+	}
+	p.serverPublicIP = publicIP
+
+	// Step 5: Wait for WireGuard to be ready and get the public key
+	pubKey, err := p.waitForWireGuardReady(ctx)
+	if err != nil {
+		// Clean up on failure
+		_ = p.terminateInstance(ctx)
+		_ = p.deleteKeyPair(ctx)
+		_ = p.deleteNetworking(ctx)
+		return nil, fmt.Errorf("failed waiting for WireGuard: %w", err)
+	}
+	p.serverPublicKey = pubKey
+
+	return &provider.ServerInfo{
+		PublicIP:        publicIP,
+		WireGuardPort:   wireGuardPort,
+		ServerPublicKey: pubKey,
+	}, nil
 }
 
 // Deprovision tears down all AWS infrastructure created by Provision.
-// This is a stub implementation that will be completed in subsequent issues.
+// It terminates the EC2 instance, deletes the key pair, and cleans up all networking resources.
 func (p *Provider) Deprovision(ctx context.Context) error {
-	// TODO: Implement in subsequent issues:
-	// 1. Terminate EC2 instance
-	// 2. Delete key pair
-	// 3. Delete security group
-	// 4. Delete route table
-	// 5. Detach and delete Internet Gateway
-	// 6. Delete subnet
-	// 7. Delete VPC
-	if p.instanceID == "" {
+	if p.instanceID == "" && p.vpcID == "" {
 		return ErrNotProvisioned
 	}
-	return ErrNotImplemented
+
+	var errs []error
+
+	// Step 1: Terminate EC2 instance (must be done before networking cleanup)
+	if err := p.terminateInstance(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("terminate instance: %w", err))
+	}
+
+	// Step 2: Delete key pair
+	if err := p.deleteKeyPair(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("delete key pair: %w", err))
+	}
+
+	// Step 3: Delete networking resources
+	if err := p.deleteNetworking(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("delete networking: %w", err))
+	}
+
+	// Clear cached server info
+	p.serverPublicKey = ""
+	p.serverPublicIP = ""
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to deprovision: %v", errs)
+	}
+
+	return nil
 }
 
 // GetStatus returns the current status of the provisioned infrastructure.
-// This is a stub implementation that will be completed in subsequent issues.
 func (p *Provider) GetStatus(ctx context.Context) (*provider.InfraStatus, error) {
 	if p.instanceID == "" {
 		return &provider.InfraStatus{
@@ -141,10 +204,43 @@ func (p *Provider) GetStatus(ctx context.Context) (*provider.InfraStatus, error)
 		}, nil
 	}
 
-	// TODO: Implement in subsequent issues:
-	// 1. Describe EC2 instance
-	// 2. Map instance state to InfraStatus
-	return nil, ErrNotImplemented
+	// Get the instance state
+	state, err := p.getInstanceState(ctx)
+	if err != nil {
+		return &provider.InfraStatus{
+			State:   provider.StateError,
+			Message: fmt.Sprintf("Failed to get instance state: %v", err),
+		}, nil
+	}
+
+	// Map EC2 instance state to InfraStatus
+	switch state {
+	case "pending":
+		return &provider.InfraStatus{
+			State:   provider.StateProvisioning,
+			Message: "Instance is starting",
+		}, nil
+	case "running":
+		return &provider.InfraStatus{
+			State:   provider.StateRunning,
+			Message: fmt.Sprintf("Instance running at %s", p.serverPublicIP),
+		}, nil
+	case "stopping", "stopped":
+		return &provider.InfraStatus{
+			State:   provider.StateStopped,
+			Message: "Instance is stopped",
+		}, nil
+	case "shutting-down", "terminated":
+		return &provider.InfraStatus{
+			State:   provider.StateNotFound,
+			Message: "Instance has been terminated",
+		}, nil
+	default:
+		return &provider.InfraStatus{
+			State:   provider.StateError,
+			Message: fmt.Sprintf("Unknown instance state: %s", state),
+		}, nil
+	}
 }
 
 // EstimateCost returns an estimate of the hourly cost for the given config.
