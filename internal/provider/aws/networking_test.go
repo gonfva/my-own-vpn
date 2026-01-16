@@ -13,19 +13,24 @@ func TestGetTags(t *testing.T) {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
+	// Without session ID, should have 3 tags
 	tags := p.getTags()
-	if len(tags) != 2 {
-		t.Errorf("expected 2 tags, got %d", len(tags))
+	if len(tags) != 3 {
+		t.Errorf("expected 3 tags without session ID, got %d", len(tags))
 	}
 
-	// Check Name tag
+	// Check all expected tags
 	foundName := false
+	foundApplication := false
 	foundManagedBy := false
 	for _, tag := range tags {
 		if *tag.Key == "Name" && *tag.Value == resourceTagName {
 			foundName = true
 		}
-		if *tag.Key == "ManagedBy" && *tag.Value == "my-own-vpn" {
+		if *tag.Key == tagKeyApplication && *tag.Value == tagValueApplication {
+			foundApplication = true
+		}
+		if *tag.Key == tagKeyManagedBy && *tag.Value == tagValueApplication {
 			foundManagedBy = true
 		}
 	}
@@ -33,8 +38,41 @@ func TestGetTags(t *testing.T) {
 	if !foundName {
 		t.Error("expected Name tag with value 'my-own-vpn'")
 	}
+	if !foundApplication {
+		t.Error("expected Application tag with value 'my-own-vpn'")
+	}
 	if !foundManagedBy {
 		t.Error("expected ManagedBy tag with value 'my-own-vpn'")
+	}
+}
+
+func TestGetTagsWithSessionID(t *testing.T) {
+	ctx := context.Background()
+	p, err := New(ctx, "test-access-key", "test-secret-key", "us-east-1")
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
+
+	// Set a session ID
+	p.sessionID = "test-session-12345678"
+
+	tags := p.getTags()
+	// With session ID, should have 4 tags
+	if len(tags) != 4 {
+		t.Errorf("expected 4 tags with session ID, got %d", len(tags))
+	}
+
+	// Check for session ID tag
+	foundSessionID := false
+	for _, tag := range tags {
+		if *tag.Key == tagKeySessionID && *tag.Value == "test-session-12345678" {
+			foundSessionID = true
+			break
+		}
+	}
+
+	if !foundSessionID {
+		t.Error("expected SessionID tag with value 'test-session-12345678'")
 	}
 }
 

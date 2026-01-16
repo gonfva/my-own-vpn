@@ -235,3 +235,91 @@ func TestProviderImplementsInterface(t *testing.T) {
 	// This is a compile-time check, but we include it as a test for clarity
 	var _ provider.Provider = (*Provider)(nil)
 }
+
+func TestGetSessionID(t *testing.T) {
+	ctx := context.Background()
+
+	p, err := New(ctx, "test-access-key", "test-secret-key", "us-east-1")
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
+
+	// Initially session ID should be empty
+	if p.GetSessionID() != "" {
+		t.Error("expected empty session ID initially")
+	}
+
+	// Set a session ID
+	p.sessionID = "test-session-12345678"
+
+	// Verify getter returns it
+	if p.GetSessionID() != "test-session-12345678" {
+		t.Errorf("expected session ID test-session-12345678, got %s", p.GetSessionID())
+	}
+}
+
+func TestCleanupOrphanedNoResources(t *testing.T) {
+	ctx := context.Background()
+
+	// Ensure no state file exists
+	_ = clearState()
+
+	p, err := New(ctx, "test-access-key", "test-secret-key", "us-east-1")
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
+
+	// CleanupOrphaned should return nil when there are no resources
+	// Note: This will try to call findResourcesByTag which will fail with invalid creds
+	// but since we're in short mode, the test should be skipped for actual AWS calls
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	err = p.CleanupOrphaned(ctx)
+	// Error is expected because we have invalid credentials
+	if err == nil {
+		t.Log("CleanupOrphaned completed without error (no resources found)")
+	}
+}
+
+func TestCleanupOrphanedWithPersistedState(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a provider and save some state
+	p1, err := New(ctx, "test-access-key", "test-secret-key", "us-east-1")
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
+
+	p1.sessionID = "test-session"
+	p1.vpcID = "vpc-test"
+	if err := p1.saveState(); err != nil {
+		t.Fatalf("saveState() returned error: %v", err)
+	}
+	defer func() { _ = clearState() }()
+
+	// Create a new provider
+	p2, err := New(ctx, "test-access-key", "test-secret-key", "us-east-1")
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
+
+	// Verify the provider has no resources loaded initially
+	if p2.HasProvisionedResources() {
+		t.Error("expected no provisioned resources initially")
+	}
+
+	// Skip actual cleanup as it requires valid credentials
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// CleanupOrphaned would load state and try to clean up
+	// With invalid credentials, this will fail at the AWS API calls
+	err = p2.CleanupOrphaned(ctx)
+	// We expect an error because we're using invalid credentials
+	if err != nil {
+		t.Logf("CleanupOrphaned failed as expected with invalid credentials: %v", err)
+	}
+}

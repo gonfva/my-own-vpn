@@ -30,16 +30,30 @@ const (
 
 // getTags returns the standard tags applied to all resources.
 func (p *Provider) getTags() []types.Tag {
-	return []types.Tag{
+	tags := []types.Tag{
 		{
 			Key:   aws.String("Name"),
 			Value: aws.String(resourceTagName),
 		},
 		{
-			Key:   aws.String("ManagedBy"),
-			Value: aws.String("my-own-vpn"),
+			Key:   aws.String(tagKeyApplication),
+			Value: aws.String(tagValueApplication),
+		},
+		{
+			Key:   aws.String(tagKeyManagedBy),
+			Value: aws.String(tagValueApplication),
 		},
 	}
+
+	// Add session ID tag if available
+	if p.sessionID != "" {
+		tags = append(tags, types.Tag{
+			Key:   aws.String(tagKeySessionID),
+			Value: aws.String(p.sessionID),
+		})
+	}
+
+	return tags
 }
 
 // getTagSpecifications returns TagSpecifications for a given resource type.
