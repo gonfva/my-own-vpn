@@ -29,7 +29,12 @@ type Provider struct {
 	region    string
 
 	// Track created resources for cleanup (will be populated by Provision)
-	instanceID string
+	vpcID             string
+	internetGatewayID string
+	subnetID          string
+	routeTableID      string
+	securityGroupID   string
+	instanceID        string
 }
 
 // New creates a new AWS provider with the given credentials and region.
