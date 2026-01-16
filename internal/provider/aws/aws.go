@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -28,14 +28,8 @@ type Provider struct {
 	stsClient *sts.Client
 	region    string
 
-	// Track created resources for cleanup
-	vpcID           string
-	subnetID        string
-	igwID           string
-	routeTableID    string
-	securityGroupID string
-	keyPairName     string
-	instanceID      string
+	// Track created resources for cleanup (will be populated by Provision)
+	instanceID string
 }
 
 // New creates a new AWS provider with the given credentials and region.
@@ -45,15 +39,15 @@ func New(ctx context.Context, accessKey, secretKey, region string) (*Provider, e
 		region = "us-east-1"
 	}
 
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithRegion(region),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+	cfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithRegion(region),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			accessKey,
 			secretKey,
 			"", // session token (empty for long-term credentials)
 		)),
 		// Disable shared config to avoid picking up local credentials
-		config.WithSharedConfigProfile(""),
+		awsconfig.WithSharedConfigProfile(""),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
@@ -101,7 +95,7 @@ func (p *Provider) ListRegions(ctx context.Context) ([]provider.Region, error) {
 
 // Provision creates all necessary AWS infrastructure for a VPN server.
 // This is a stub implementation that will be completed in subsequent issues.
-func (p *Provider) Provision(ctx context.Context, config provider.ProvisionConfig) (*provider.ServerInfo, error) {
+func (p *Provider) Provision(ctx context.Context, cfg provider.ProvisionConfig) (*provider.ServerInfo, error) {
 	// TODO: Implement in subsequent issues:
 	// 1. Create VPC
 	// 2. Create subnet
@@ -149,7 +143,7 @@ func (p *Provider) GetStatus(ctx context.Context) (*provider.InfraStatus, error)
 }
 
 // EstimateCost returns an estimate of the hourly cost for the given config.
-func (p *Provider) EstimateCost(config provider.ProvisionConfig) provider.CostEstimate {
+func (p *Provider) EstimateCost(cfg provider.ProvisionConfig) provider.CostEstimate {
 	// Approximate hourly costs for common instance types (USD, us-east-1)
 	// These are estimates and may vary by region
 	costs := map[string]float64{
@@ -161,7 +155,7 @@ func (p *Provider) EstimateCost(config provider.ProvisionConfig) provider.CostEs
 		"t2.medium": 0.0464,
 	}
 
-	rate, ok := costs[config.InstanceType]
+	rate, ok := costs[cfg.InstanceType]
 	if !ok {
 		// Default to t3.micro cost if instance type is unknown
 		rate = 0.0104
