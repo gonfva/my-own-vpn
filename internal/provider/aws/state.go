@@ -113,6 +113,7 @@ func loadState() (*ProvisionState, error) {
 		return nil, err
 	}
 
+	// #nosec G304 - filePath is constructed from system config dir and a hardcoded constant
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
