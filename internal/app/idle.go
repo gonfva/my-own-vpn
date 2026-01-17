@@ -62,7 +62,10 @@ func (m *IdleMonitor) Start() {
 	m.enabled = true
 	m.stopCh = make(chan struct{})
 
-	go m.monitor()
+	// Capture the channel in a local variable to avoid race conditions
+	// when Stop() sets stopCh to nil
+	stopCh := m.stopCh
+	go m.monitorLoop(stopCh)
 }
 
 // Stop stops the idle monitoring.
@@ -130,15 +133,16 @@ func (m *IdleMonitor) Timeout() time.Duration {
 	return m.timeout
 }
 
-// monitor is the main loop that checks for idle timeout.
-func (m *IdleMonitor) monitor() {
+// monitorLoop is the main loop that checks for idle timeout.
+// It takes stopCh as a parameter to avoid race conditions with Stop().
+func (m *IdleMonitor) monitorLoop(stopCh <-chan struct{}) {
 	// Check every 30 seconds
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-m.stopCh:
+		case <-stopCh:
 			return
 		case <-ticker.C:
 			m.checkIdle()
