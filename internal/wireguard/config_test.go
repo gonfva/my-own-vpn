@@ -3,6 +3,7 @@ package wireguard
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -112,9 +113,12 @@ func TestConfigWriteToFile(t *testing.T) {
 		t.Fatalf("config file not created: %v", err)
 	}
 
-	// Verify permissions are 0600
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("expected permissions 0600, got %o", info.Mode().Perm())
+	// Verify permissions are 0600 (only on Unix-like systems)
+	// Windows doesn't support Unix-style permissions
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("expected permissions 0600, got %o", info.Mode().Perm())
+		}
 	}
 
 	// Verify the content
