@@ -2,7 +2,11 @@
 
 package ui
 
-import "sync"
+import (
+	"sync"
+
+	"fyne.io/fyne/v2"
+)
 
 // SettingsWindow manages the settings window UI (stub for non-CGO builds)
 type SettingsWindow struct {
@@ -10,6 +14,7 @@ type SettingsWindow struct {
 	visible       bool
 	currentConfig SettingsConfig
 	onSave        func(config SettingsConfig)
+	onStarted     func(fyne.App)
 }
 
 // NewSettingsWindow creates a new SettingsWindow instance
@@ -29,12 +34,12 @@ func (s *SettingsWindow) GetFyneApp() interface{} {
 	return nil
 }
 
-// SetOnStarted registers a callback (stub - calls immediately without CGO)
-func (s *SettingsWindow) SetOnStarted(callback func()) {
-	// In stub implementation, just call immediately since there's no event loop
-	if callback != nil {
-		callback()
-	}
+// SetOnStarted registers a callback to be called when the app has started.
+// In stub implementation, the callback is stored and called by RunFyneLoop with nil.
+func (s *SettingsWindow) SetOnStarted(callback func(fyne.App)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onStarted = callback
 }
 
 // Show displays the settings window (stub - no-op without CGO)
@@ -79,9 +84,16 @@ func (s *SettingsWindow) IsVisible() bool {
 	return s.visible
 }
 
-// RunFyneLoop starts the Fyne event loop (stub - no-op without CGO)
+// RunFyneLoop starts the Fyne event loop (stub - calls onStarted with nil, then returns)
 func (s *SettingsWindow) RunFyneLoop() {
-	// No-op in stub implementation
+	s.mu.Lock()
+	callback := s.onStarted
+	s.mu.Unlock()
+
+	// Call the onStarted callback with nil since there's no real Fyne app
+	if callback != nil {
+		callback(nil)
+	}
 }
 
 // StopFyneLoop stops the Fyne event loop (stub - no-op without CGO)

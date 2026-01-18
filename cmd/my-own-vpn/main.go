@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"fyne.io/fyne/v2"
 	"github.com/gonfva/my-own-vpn/internal/app"
 	"github.com/gonfva/my-own-vpn/internal/config"
 	"github.com/gonfva/my-own-vpn/internal/ui"
@@ -35,17 +36,15 @@ func main() {
 	controller.SetOnStateChange(onControllerStateChange)
 	controller.SetOnError(onControllerError)
 
-	// Create the settings window and get the shared Fyne app
+	// Create the settings window (Fyne app will be created in RunFyneLoop)
 	settingsWindow = ui.NewSettingsWindow()
-	fyneApp := settingsWindow.GetFyneApp()
 
 	// Load config into settings window
 	settingsWindow.LoadConfig(configToSettingsConfig(appConfig))
 	settingsWindow.SetOnSave(onSettingsSaved)
 
-	// Create the system tray application with shared Fyne app
+	// Create the system tray application
 	tray = ui.NewTrayApp()
-	tray.SetFyneApp(fyneApp)
 
 	// Set up callbacks
 	tray.SetCallbacks(
@@ -55,9 +54,12 @@ func main() {
 		onQuit,
 	)
 
-	// Initialize the system tray menu after Fyne app has started
-	// (systray requires the event loop to be running)
-	settingsWindow.SetOnStarted(func() {
+	// Initialize the system tray menu after Fyne app has started.
+	// The callback receives the Fyne app instance once it's created and the
+	// event loop is running. This avoids "tray not ready" errors that occur
+	// when the app is created too early before the event loop starts.
+	settingsWindow.SetOnStarted(func(fyneApp fyne.App) {
+		tray.SetFyneApp(fyneApp)
 		tray.Setup()
 	})
 
