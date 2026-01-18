@@ -93,26 +93,26 @@ func (s *SettingsWindow) SetOnStarted(callback func(fyne.App)) {
 // This method is safe to call from any goroutine - it schedules UI operations
 // on the main Fyne thread to avoid thread safety issues.
 func (s *SettingsWindow) Show() {
-	// Get fyneApp reference under lock
-	s.mu.Lock()
-	if s.fyneApp == nil {
-		s.fyneApp = app.New()
-	}
-	alreadyCreated := s.window != nil
-	s.mu.Unlock()
-
-	// Schedule all UI operations on the main Fyne thread
-	fyne.DoAndWait(func() {
+	// Schedule all UI operations on the main Fyne thread using non-blocking Do
+	// to avoid potential deadlocks with system tray menu callbacks on Windows
+	fyne.Do(func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
-		// Double-check window creation in case another goroutine created it
-		if !alreadyCreated && s.window == nil {
+		// Ensure we have a Fyne app
+		if s.fyneApp == nil {
+			// This shouldn't happen if RunFyneLoop was called, but handle it gracefully
+			return
+		}
+
+		// Create window if needed
+		if s.window == nil {
 			s.createWindow()
 		}
 
 		s.loadConfigToForm()
 		s.window.Show()
+		s.window.RequestFocus()
 		s.visible = true
 	})
 }
@@ -120,20 +120,14 @@ func (s *SettingsWindow) Show() {
 // Hide hides the settings window.
 // This method is safe to call from any goroutine.
 func (s *SettingsWindow) Hide() {
-	s.mu.Lock()
-	window := s.window
-	s.mu.Unlock()
-
-	if window != nil {
-		fyne.DoAndWait(func() {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			if s.window != nil {
-				s.window.Hide()
-				s.visible = false
-			}
-		})
-	}
+	fyne.Do(func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.window != nil {
+			s.window.Hide()
+			s.visible = false
+		}
+	})
 }
 
 // SetOnSave sets the callback function called when settings are saved
