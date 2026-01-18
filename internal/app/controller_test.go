@@ -6,10 +6,18 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gonfva/my-own-vpn/internal/config"
+	"github.com/gonfva/my-own-vpn/internal/provider"
 )
 
+// newTestController creates a controller with empty dependencies for basic tests
+func newTestController() *Controller {
+	return NewController(ControllerDeps{})
+}
+
 func TestNewController(t *testing.T) {
-	c := NewController()
+	c := newTestController()
 
 	if c == nil {
 		t.Fatal("NewController returned nil")
@@ -47,7 +55,7 @@ func TestStateString(t *testing.T) {
 }
 
 func TestValidTransitions(t *testing.T) {
-	c := NewController()
+	c := newTestController()
 
 	tests := []struct {
 		from  State
@@ -83,7 +91,7 @@ func TestValidTransitions(t *testing.T) {
 }
 
 func TestSetStateCallbacks(t *testing.T) {
-	c := NewController()
+	c := newTestController()
 
 	done := make(chan bool)
 	var receivedState State
@@ -121,113 +129,8 @@ func TestSetStateCallbacks(t *testing.T) {
 	}
 }
 
-func TestConnectStub(t *testing.T) {
-	c := NewController()
-
-	done := make(chan bool, 10)
-	var stateChanges []State
-	var mu sync.Mutex
-
-	c.SetOnStateChange(func(state State, msg string) {
-		mu.Lock()
-		stateChanges = append(stateChanges, state)
-		mu.Unlock()
-		done <- true
-	})
-
-	ctx := context.Background()
-	err := c.Connect(ctx)
-
-	if err != nil {
-		t.Fatalf("Connect returned error: %v", err)
-	}
-
-	// Wait for 3 state changes: Provisioning -> Connecting -> Connected
-	for i := 0; i < 3; i++ {
-		select {
-		case <-done:
-			// Got state change
-		case <-time.After(10 * time.Second):
-			t.Fatalf("timeout waiting for state change %d", i+1)
-		}
-	}
-
-	// Should have transitioned: Provisioning -> Connecting -> Connected
-	expectedStates := []State{StateProvisioning, StateConnecting, StateConnected}
-
-	mu.Lock()
-	if len(stateChanges) != len(expectedStates) {
-		t.Errorf("expected %d state changes, got %d: %v", len(expectedStates), len(stateChanges), stateChanges)
-	}
-
-	for i, expected := range expectedStates {
-		if i >= len(stateChanges) {
-			break
-		}
-		if stateChanges[i] != expected {
-			t.Errorf("state change %d: expected %v, got %v", i, expected, stateChanges[i])
-		}
-	}
-	mu.Unlock()
-
-	if c.State() != StateConnected {
-		t.Errorf("expected final state Connected, got %v", c.State())
-	}
-}
-
-func TestDisconnectStub(t *testing.T) {
-	c := NewController()
-
-	// First manually set to Connected state
-	c.mu.Lock()
-	c.state = StateConnected
-	c.sessionStart = time.Now()
-	c.mu.Unlock()
-
-	done := make(chan bool, 10)
-	var stateChanges []State
-	var mu sync.Mutex
-
-	c.SetOnStateChange(func(state State, msg string) {
-		mu.Lock()
-		stateChanges = append(stateChanges, state)
-		mu.Unlock()
-		done <- true
-	})
-
-	ctx := context.Background()
-	err := c.Disconnect(ctx)
-
-	if err != nil {
-		t.Fatalf("Disconnect returned error: %v", err)
-	}
-
-	// Wait for 3 state changes: Disconnecting -> Deprovisioning -> Disconnected
-	for i := 0; i < 3; i++ {
-		select {
-		case <-done:
-			// Got state change
-		case <-time.After(10 * time.Second):
-			t.Fatalf("timeout waiting for state change %d", i+1)
-		}
-	}
-
-	// Should have transitioned: Disconnecting -> Deprovisioning -> Disconnected
-	expectedStates := []State{StateDisconnecting, StateDeprovisioning, StateDisconnected}
-
-	mu.Lock()
-	if len(stateChanges) != len(expectedStates) {
-		t.Errorf("expected %d state changes, got %d: %v", len(expectedStates), len(stateChanges), stateChanges)
-	}
-	mu.Unlock()
-
-	if c.State() != StateDisconnected {
-		t.Errorf("expected final state Disconnected, got %v", c.State())
-	}
-}
-
 func TestSessionDuration(t *testing.T) {
-	c := NewController()
+	c := newTestController()
 
 	// When disconnected, duration should be 0
 	if d := c.SessionDuration(); d != 0 {
@@ -257,42 +160,8 @@ func TestSessionDuration(t *testing.T) {
 	}
 }
 
-func TestCancel(t *testing.T) {
-	c := NewController()
-
-	ctx := context.Background()
-
-	// Start connection
-	err := c.Connect(ctx)
-	if err != nil {
-		t.Fatalf("Connect returned error: %v", err)
-	}
-
-	// Wait a bit
-	time.Sleep(500 * time.Millisecond)
-
-	// Cancel should work
-	c.Cancel()
-
-	// Check that cancelFunc was called
-	c.mu.RLock()
-	if c.cancelFunc != nil {
-		t.Error("cancelFunc should be nil after Cancel()")
-	}
-	c.mu.RUnlock()
-
-	// Wait for error handling to complete
-	time.Sleep(1 * time.Second)
-
-	// Should end up in Error or Disconnected state after cleanup
-	finalState := c.State()
-	if finalState != StateError && finalState != StateDisconnected {
-		t.Errorf("expected Error or Disconnected state after cancel, got %v", finalState)
-	}
-}
-
 func TestInvalidStateOperations(t *testing.T) {
-	c := NewController()
+	c := newTestController()
 	ctx := context.Background()
 
 	// Try to disconnect when not connected
@@ -325,7 +194,22 @@ func TestInvalidStateOperations(t *testing.T) {
 }
 
 func TestThreadSafety(t *testing.T) {
-	c := NewController()
+	mockProvider := &MockProvider{}
+	mockWG := &MockWireGuardClient{}
+	mockCreds := &MockCredentialsManager{}
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: mockCreds,
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+	c.SetConfig(&config.Config{
+		Provider:     "aws",
+		Region:       "us-east-1",
+		InstanceType: "t3.micro",
+	})
 
 	// Run with -race flag to detect races
 	done := make(chan bool)
@@ -356,7 +240,7 @@ func TestThreadSafety(t *testing.T) {
 }
 
 func TestErrorCallback(t *testing.T) {
-	c := NewController()
+	c := newTestController()
 
 	// Set controller to a state that can transition to Error (Provisioning)
 	c.mu.Lock()
@@ -373,7 +257,7 @@ func TestErrorCallback(t *testing.T) {
 
 	// Manually trigger an error
 	testErr := context.Canceled
-	c.handleError(testErr, "test error")
+	c.handleError(context.Background(), testErr, "test error")
 
 	// Wait for error callback
 	select {
@@ -397,7 +281,7 @@ func TestErrorCallback(t *testing.T) {
 }
 
 func TestInvalidTransitionRejected(t *testing.T) {
-	c := NewController()
+	c := newTestController()
 
 	// Try an invalid transition
 	c.mu.Lock()
@@ -412,4 +296,621 @@ func TestInvalidTransitionRejected(t *testing.T) {
 	if c.State() != StateDisconnected {
 		t.Errorf("expected state to remain Disconnected, got %v", c.State())
 	}
+}
+
+// ============ Real flow tests with mocks ============
+
+func TestConnect_Success(t *testing.T) {
+	mockProvider := &MockProvider{}
+	mockWG := &MockWireGuardClient{}
+	mockCreds := &MockCredentialsManager{}
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: mockCreds,
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+
+	c.SetConfig(&config.Config{
+		Provider:     "aws",
+		Region:       "us-east-1",
+		InstanceType: "t3.micro",
+	})
+
+	connectedDone := make(chan bool, 1)
+	var stateSet = make(map[State]bool)
+	var mu sync.Mutex
+
+	c.SetOnStateChange(func(state State, _ string) {
+		mu.Lock()
+		stateSet[state] = true
+		mu.Unlock()
+		if state == StateConnected {
+			connectedDone <- true
+		}
+	})
+
+	ctx := context.Background()
+	err := c.Connect(ctx)
+
+	if err != nil {
+		t.Fatalf("Connect returned error: %v", err)
+	}
+
+	// Wait for Connected state
+	select {
+	case <-connectedDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for Connected state")
+	}
+
+	// Small delay to allow all async state callbacks to complete
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify all expected states occurred (order may vary due to async callbacks)
+	expectedStates := []State{StateProvisioning, StateConnecting, StateConnected}
+	mu.Lock()
+	for _, expected := range expectedStates {
+		if !stateSet[expected] {
+			t.Errorf("expected state %v to be reached", expected)
+		}
+	}
+	mu.Unlock()
+
+	if c.State() != StateConnected {
+		t.Errorf("expected final state Connected, got %v", c.State())
+	}
+
+	// Verify mock calls
+	if !mockProvider.ValidateCalled {
+		t.Error("expected provider.ValidateCredentials to be called")
+	}
+	if !mockProvider.ProvisionCalled {
+		t.Error("expected provider.Provision to be called")
+	}
+	if !mockWG.ConnectCalled {
+		t.Error("expected wgClient.Connect to be called")
+	}
+}
+
+func TestDisconnect_Success(t *testing.T) {
+	mockProvider := &MockProvider{}
+	mockWG := &MockWireGuardClient{}
+	mockWG.SetConnected(true)
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: &MockCredentialsManager{},
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+
+	// Set up as connected
+	c.mu.Lock()
+	c.state = StateConnected
+	c.sessionStart = time.Now()
+	c.activeProvider = mockProvider
+	c.mu.Unlock()
+
+	done := make(chan bool, 10)
+	var stateChanges []State
+	var mu sync.Mutex
+
+	c.SetOnStateChange(func(state State, _ string) {
+		mu.Lock()
+		stateChanges = append(stateChanges, state)
+		mu.Unlock()
+		done <- true
+	})
+
+	ctx := context.Background()
+	err := c.Disconnect(ctx)
+
+	if err != nil {
+		t.Fatalf("Disconnect returned error: %v", err)
+	}
+
+	// Wait for 3 state changes: Disconnecting -> Deprovisioning -> Disconnected
+	for i := 0; i < 3; i++ {
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("timeout waiting for state change %d", i+1)
+		}
+	}
+
+	expectedStates := []State{StateDisconnecting, StateDeprovisioning, StateDisconnected}
+	mu.Lock()
+	if len(stateChanges) != len(expectedStates) {
+		t.Errorf("expected %d state changes, got %d: %v", len(expectedStates), len(stateChanges), stateChanges)
+	}
+	mu.Unlock()
+
+	if c.State() != StateDisconnected {
+		t.Errorf("expected final state Disconnected, got %v", c.State())
+	}
+
+	// Verify mock calls
+	if !mockWG.DisconnectCalled {
+		t.Error("expected wgClient.Disconnect to be called")
+	}
+	if !mockProvider.DeprovisionCalled {
+		t.Error("expected provider.Deprovision to be called")
+	}
+}
+
+func TestConnect_NoConfig(t *testing.T) {
+	mockProvider := &MockProvider{}
+	mockWG := &MockWireGuardClient{}
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: &MockCredentialsManager{},
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+
+	// No config set
+	errorCalled := make(chan bool, 1)
+	c.SetOnError(func(_ error) {
+		errorCalled <- true
+	})
+
+	ctx := context.Background()
+	err := c.Connect(ctx)
+
+	if err != nil {
+		t.Fatalf("Connect should not return immediate error: %v", err)
+	}
+
+	// Wait for error callback
+	select {
+	case <-errorCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected error callback for missing config")
+	}
+
+	// Wait for cleanup
+	time.Sleep(500 * time.Millisecond)
+
+	if c.State() != StateDisconnected {
+		t.Errorf("expected Disconnected state after error, got %v", c.State())
+	}
+}
+
+func TestConnect_InvalidConfig(t *testing.T) {
+	mockProvider := &MockProvider{}
+	mockWG := &MockWireGuardClient{}
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: &MockCredentialsManager{},
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+
+	// Set invalid config
+	c.SetConfig(&config.Config{
+		Provider: "invalid-provider",
+		Region:   "us-east-1",
+	})
+
+	errorCalled := make(chan bool, 1)
+	c.SetOnError(func(_ error) {
+		errorCalled <- true
+	})
+
+	ctx := context.Background()
+	_ = c.Connect(ctx)
+
+	// Wait for error callback
+	select {
+	case <-errorCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected error callback for invalid config")
+	}
+
+	// Wait for cleanup
+	time.Sleep(500 * time.Millisecond)
+
+	if c.State() != StateDisconnected {
+		t.Errorf("expected Disconnected state after error, got %v", c.State())
+	}
+}
+
+func TestConnect_CredentialValidationFails(t *testing.T) {
+	mockProvider := &MockProvider{}
+	mockProvider.SetValidateError(errors.New("invalid credentials"))
+	mockWG := &MockWireGuardClient{}
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: &MockCredentialsManager{},
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+
+	c.SetConfig(&config.Config{
+		Provider:     "aws",
+		Region:       "us-east-1",
+		InstanceType: "t3.micro",
+	})
+
+	errorCalled := make(chan bool, 1)
+	c.SetOnError(func(_ error) {
+		errorCalled <- true
+	})
+
+	ctx := context.Background()
+	_ = c.Connect(ctx)
+
+	// Wait for error callback
+	select {
+	case <-errorCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected error callback for credential validation failure")
+	}
+
+	// Wait for cleanup
+	time.Sleep(500 * time.Millisecond)
+
+	if c.State() != StateDisconnected {
+		t.Errorf("expected Disconnected state after error, got %v", c.State())
+	}
+}
+
+func TestConnect_ProvisionFails(t *testing.T) {
+	mockProvider := &MockProvider{}
+	mockProvider.SetProvisionError(errors.New("provision failed"))
+	mockWG := &MockWireGuardClient{}
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: &MockCredentialsManager{},
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+
+	c.SetConfig(&config.Config{
+		Provider:     "aws",
+		Region:       "us-east-1",
+		InstanceType: "t3.micro",
+	})
+
+	errorCalled := make(chan bool, 1)
+	c.SetOnError(func(_ error) {
+		errorCalled <- true
+	})
+
+	ctx := context.Background()
+	_ = c.Connect(ctx)
+
+	// Wait for error callback
+	select {
+	case <-errorCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected error callback for provision failure")
+	}
+
+	// Wait for cleanup
+	time.Sleep(500 * time.Millisecond)
+
+	// Should have attempted cleanup (deprovision)
+	if !mockProvider.DeprovisionCalled {
+		t.Error("expected provider.Deprovision to be called during cleanup")
+	}
+
+	if c.State() != StateDisconnected {
+		t.Errorf("expected Disconnected state after error, got %v", c.State())
+	}
+}
+
+func TestConnect_WireGuardFails(t *testing.T) {
+	mockProvider := &MockProvider{}
+	mockWG := &MockWireGuardClient{}
+	mockWG.SetConnectError(errors.New("wireguard connection failed"))
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: &MockCredentialsManager{},
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+
+	c.SetConfig(&config.Config{
+		Provider:     "aws",
+		Region:       "us-east-1",
+		InstanceType: "t3.micro",
+	})
+
+	errorCalled := make(chan bool, 1)
+	c.SetOnError(func(_ error) {
+		errorCalled <- true
+	})
+
+	ctx := context.Background()
+	_ = c.Connect(ctx)
+
+	// Wait for error callback
+	select {
+	case <-errorCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected error callback for WireGuard failure")
+	}
+
+	// Wait for cleanup
+	time.Sleep(500 * time.Millisecond)
+
+	// Should have attempted cleanup (deprovision)
+	if !mockProvider.DeprovisionCalled {
+		t.Error("expected provider.Deprovision to be called during cleanup")
+	}
+
+	if c.State() != StateDisconnected {
+		t.Errorf("expected Disconnected state after error, got %v", c.State())
+	}
+}
+
+func TestDisconnect_WireGuardFails(t *testing.T) {
+	mockProvider := &MockProvider{}
+	mockWG := &MockWireGuardClient{}
+	mockWG.SetConnected(true)
+	mockWG.SetDisconnectError(errors.New("wireguard disconnect failed"))
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: &MockCredentialsManager{},
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+
+	// Set up as connected
+	c.mu.Lock()
+	c.state = StateConnected
+	c.sessionStart = time.Now()
+	c.activeProvider = mockProvider
+	c.mu.Unlock()
+
+	done := make(chan bool, 10)
+	c.SetOnStateChange(func(state State, _ string) {
+		if state == StateDisconnected {
+			done <- true
+		}
+	})
+
+	ctx := context.Background()
+	_ = c.Disconnect(ctx)
+
+	// Should still complete despite WireGuard error
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("expected disconnect to complete despite WireGuard error")
+	}
+
+	if c.State() != StateDisconnected {
+		t.Errorf("expected Disconnected state, got %v", c.State())
+	}
+
+	// Deprovision should still be called
+	if !mockProvider.DeprovisionCalled {
+		t.Error("expected provider.Deprovision to be called even after WireGuard error")
+	}
+}
+
+func TestDisconnect_DeprovisionFails(t *testing.T) {
+	mockProvider := &MockProvider{}
+	mockProvider.SetDeprovisionError(errors.New("deprovision failed"))
+	mockWG := &MockWireGuardClient{}
+	mockWG.SetConnected(true)
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: &MockCredentialsManager{},
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+
+	// Set up as connected
+	c.mu.Lock()
+	c.state = StateConnected
+	c.sessionStart = time.Now()
+	c.activeProvider = mockProvider
+	c.mu.Unlock()
+
+	done := make(chan bool, 10)
+	c.SetOnStateChange(func(state State, _ string) {
+		if state == StateDisconnected {
+			done <- true
+		}
+	})
+
+	ctx := context.Background()
+	_ = c.Disconnect(ctx)
+
+	// Should still reach Disconnected state despite deprovision error
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("expected disconnect to complete despite deprovision error")
+	}
+
+	if c.State() != StateDisconnected {
+		t.Errorf("expected Disconnected state, got %v", c.State())
+	}
+}
+
+func TestConnect_Cancelled(t *testing.T) {
+	// Create a slow mock provider that allows us to cancel during provisioning
+	slowProvider := &MockProvider{}
+
+	provisionStarted := make(chan bool, 1)
+	provisionBlocked := make(chan bool)
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: &MockCredentialsManager{},
+		WireGuardClient:    &MockWireGuardClient{},
+		ProviderFactory: func(ctx context.Context, _, _ string) (provider.Provider, error) {
+			// Signal that we've entered the provider factory
+			select {
+			case provisionStarted <- true:
+			default:
+			}
+			// Block until we receive a signal or context is cancelled
+			select {
+			case <-provisionBlocked:
+				return slowProvider, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		},
+	})
+
+	c.SetConfig(&config.Config{
+		Provider:     "aws",
+		Region:       "us-east-1",
+		InstanceType: "t3.micro",
+	})
+
+	errorCalled := make(chan bool, 1)
+	c.SetOnError(func(_ error) {
+		errorCalled <- true
+	})
+
+	ctx := context.Background()
+	err := c.Connect(ctx)
+	if err != nil {
+		t.Fatalf("Connect returned error: %v", err)
+	}
+
+	// Wait for provision to start
+	select {
+	case <-provisionStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for provisioning to start")
+	}
+
+	// Cancel the operation
+	c.Cancel()
+
+	// Wait for error callback or timeout
+	select {
+	case <-errorCalled:
+		// Expected - cancellation triggered error
+	case <-time.After(2 * time.Second):
+		// Also acceptable - if the operation finished before cancel took effect
+	}
+
+	// Allow some time for cleanup
+	time.Sleep(500 * time.Millisecond)
+
+	// Should be disconnected after cancel and cleanup
+	finalState := c.State()
+	if finalState != StateError && finalState != StateDisconnected {
+		t.Errorf("expected Error or Disconnected state after cancel, got %v", finalState)
+	}
+}
+
+func TestConnectThenDisconnect(t *testing.T) {
+	mockProvider := &MockProvider{}
+	mockWG := &MockWireGuardClient{}
+
+	c := NewController(ControllerDeps{
+		CredentialsManager: &MockCredentialsManager{},
+		WireGuardClient:    mockWG,
+		ProviderFactory: func(_ context.Context, _, _ string) (provider.Provider, error) {
+			return mockProvider, nil
+		},
+	})
+
+	c.SetConfig(&config.Config{
+		Provider:     "aws",
+		Region:       "us-east-1",
+		InstanceType: "t3.micro",
+	})
+
+	connectedDone := make(chan bool, 1)
+	disconnectedDone := make(chan bool, 1)
+
+	c.SetOnStateChange(func(state State, _ string) {
+		switch state {
+		case StateConnected:
+			connectedDone <- true
+		case StateDisconnected:
+			disconnectedDone <- true
+		}
+	})
+
+	ctx := context.Background()
+
+	// Connect
+	_ = c.Connect(ctx)
+
+	select {
+	case <-connectedDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for Connected state")
+	}
+
+	if c.State() != StateConnected {
+		t.Fatalf("expected Connected, got %v", c.State())
+	}
+
+	// Disconnect
+	_ = c.Disconnect(ctx)
+
+	select {
+	case <-disconnectedDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for Disconnected state")
+	}
+
+	if c.State() != StateDisconnected {
+		t.Errorf("expected Disconnected, got %v", c.State())
+	}
+
+	// Verify all operations were called
+	if !mockProvider.ValidateCalled {
+		t.Error("expected provider.ValidateCredentials to be called")
+	}
+	if !mockProvider.ProvisionCalled {
+		t.Error("expected provider.Provision to be called")
+	}
+	if !mockWG.ConnectCalled {
+		t.Error("expected wgClient.Connect to be called")
+	}
+	if !mockWG.DisconnectCalled {
+		t.Error("expected wgClient.Disconnect to be called")
+	}
+	if !mockProvider.DeprovisionCalled {
+		t.Error("expected provider.Deprovision to be called")
+	}
+}
+
+func TestSetConfig(t *testing.T) {
+	c := newTestController()
+
+	cfg := &config.Config{
+		Provider:     "hetzner",
+		Region:       "fsn1",
+		InstanceType: "cx11",
+	}
+
+	c.SetConfig(cfg)
+
+	c.mu.RLock()
+	if c.config != cfg {
+		t.Error("expected config to be set")
+	}
+	c.mu.RUnlock()
 }

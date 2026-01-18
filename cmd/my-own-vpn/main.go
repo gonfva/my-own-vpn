@@ -3,11 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"github.com/gonfva/my-own-vpn/internal/app"
 	"github.com/gonfva/my-own-vpn/internal/config"
+	"github.com/gonfva/my-own-vpn/internal/credentials"
+	"github.com/gonfva/my-own-vpn/internal/provider"
+	"github.com/gonfva/my-own-vpn/internal/provider/aws"
+	"github.com/gonfva/my-own-vpn/internal/provider/hetzner"
 	"github.com/gonfva/my-own-vpn/internal/ui"
+	"github.com/gonfva/my-own-vpn/internal/wireguard"
 )
 
 // Version is set during build
@@ -18,6 +24,7 @@ var (
 	settingsWindow *ui.SettingsWindow
 	controller     *app.Controller
 	appConfig      *config.Config
+	credsMgr       credentials.Manager
 )
 
 func main() {
@@ -31,8 +38,27 @@ func main() {
 		appConfig = config.DefaultConfig()
 	}
 
-	// Create the controller
-	controller = app.NewController()
+	// Create credentials manager
+	credsMgr, err = credentials.NewManager()
+	if err != nil {
+		fmt.Printf("Failed to create credentials manager: %v\n", err)
+		return
+	}
+
+	// Create WireGuard client
+	wgClient, err := wireguard.NewClient()
+	if err != nil {
+		fmt.Printf("Failed to create WireGuard client: %v\n", err)
+		return
+	}
+
+	// Create the controller with dependencies
+	controller = app.NewController(app.ControllerDeps{
+		CredentialsManager: credsMgr,
+		WireGuardClient:    wgClient,
+		ProviderFactory:    createProvider,
+	})
+	controller.SetConfig(appConfig)
 	controller.SetOnStateChange(onControllerStateChange)
 	controller.SetOnError(onControllerError)
 
@@ -103,10 +129,67 @@ func onSettingsSaved(settingsConfig ui.SettingsConfig) {
 		return
 	}
 
-	// TODO: Store credentials in credential manager
-	// TODO: Update controller/provider with new config
+	// Store credentials in credential manager
+	ctx := context.Background()
+	providerType := strings.ToLower(settingsConfig.Provider)
+	switch providerType {
+	case "aws":
+		if settingsConfig.AWSAccessKeyID != "" || settingsConfig.AWSSecretAccessKey != "" {
+			err := credsMgr.SaveAWS(ctx, credentials.AWSCredentials{
+				AccessKeyID:     settingsConfig.AWSAccessKeyID,
+				SecretAccessKey: settingsConfig.AWSSecretAccessKey,
+			})
+			if err != nil {
+				fmt.Printf("Failed to save AWS credentials: %v\n", err)
+				tray.SetError(fmt.Sprintf("Failed to save credentials: %v", err))
+				return
+			}
+		}
+	case "hetzner":
+		if settingsConfig.HetznerAPIToken != "" {
+			err := credsMgr.SaveHetzner(ctx, credentials.HetznerCredentials{
+				APIToken: settingsConfig.HetznerAPIToken,
+			})
+			if err != nil {
+				fmt.Printf("Failed to save Hetzner credentials: %v\n", err)
+				tray.SetError(fmt.Sprintf("Failed to save credentials: %v", err))
+				return
+			}
+		}
+	}
+
+	// Update controller config
+	controller.SetConfig(appConfig)
 
 	fmt.Println("Configuration saved successfully")
+}
+
+// createProvider creates a cloud provider based on the provider type and region.
+// It loads the appropriate credentials from the credential manager.
+func createProvider(ctx context.Context, providerType, region string) (provider.Provider, error) {
+	providerType = strings.ToLower(providerType)
+	switch providerType {
+	case "aws":
+		creds, err := credsMgr.LoadAWS(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load AWS credentials: %w", err)
+		}
+		if creds == nil || creds.IsEmpty() {
+			return nil, fmt.Errorf("AWS credentials not configured")
+		}
+		return aws.New(ctx, creds.AccessKeyID, creds.SecretAccessKey, region)
+	case "hetzner":
+		creds, err := credsMgr.LoadHetzner(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load Hetzner credentials: %w", err)
+		}
+		if creds == nil || creds.IsEmpty() {
+			return nil, fmt.Errorf("Hetzner credentials not configured")
+		}
+		return hetzner.New(creds.APIToken)
+	default:
+		return nil, fmt.Errorf("unknown provider type: %s", providerType)
+	}
 }
 
 func onQuit() {
