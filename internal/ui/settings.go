@@ -22,7 +22,8 @@ type SettingsWindow struct {
 	visible bool
 
 	// Callbacks
-	onSave func(config SettingsConfig)
+	onSave    func(config SettingsConfig)
+	onStarted func(fyne.App) // Callback to be executed when the app has started
 
 	// Provider selection
 	providerSelect *widget.Select
@@ -78,14 +79,14 @@ func (s *SettingsWindow) GetFyneApp() fyne.App {
 	return s.fyneApp
 }
 
-// SetOnStarted registers a callback to be called when the Fyne app has started
-func (s *SettingsWindow) SetOnStarted(callback func()) {
+// SetOnStarted registers a callback to be called when the Fyne app has started.
+// The callback receives the fyne.App instance and is stored until RunFyneLoop is called.
+// This ensures the callback is registered immediately before the event loop starts,
+// avoiding "tray not ready" errors that occur when the app is created too early.
+func (s *SettingsWindow) SetOnStarted(callback func(fyne.App)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.fyneApp == nil {
-		s.fyneApp = app.New()
-	}
-	s.fyneApp.Lifecycle().SetOnStarted(callback)
+	s.onStarted = callback
 }
 
 // Show displays the settings window
@@ -472,15 +473,28 @@ func joinErrors(errors []string) string {
 	return result
 }
 
-// RunFyneLoop starts the Fyne event loop
-// This must be called from the main goroutine
+// RunFyneLoop starts the Fyne event loop.
+// This must be called from the main goroutine.
+// The Fyne app is created here, immediately before starting the event loop,
+// to avoid "tray not ready" errors that occur when there's a gap between
+// app creation and event loop start.
 func (s *SettingsWindow) RunFyneLoop() {
 	s.mu.Lock()
+	// Create the Fyne app right before running to minimize the gap
+	// between app creation and event loop start
 	if s.fyneApp == nil {
 		s.fyneApp = app.New()
 	}
 	fyneApp := s.fyneApp
+	onStartedCallback := s.onStarted
 	s.mu.Unlock()
+
+	// Register the OnStarted callback if one was provided
+	if onStartedCallback != nil {
+		fyneApp.Lifecycle().SetOnStarted(func() {
+			onStartedCallback(fyneApp)
+		})
+	}
 
 	// Run the Fyne event loop (blocks until Quit is called)
 	fyneApp.Run()
