@@ -3,9 +3,25 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
+
+	"github.com/gonfva/my-own-vpn/internal/config"
+	"github.com/gonfva/my-own-vpn/internal/credentials"
+	"github.com/gonfva/my-own-vpn/internal/provider"
+	"github.com/gonfva/my-own-vpn/internal/wireguard"
 )
+
+// ProviderFactory creates a provider instance for the given type and region
+type ProviderFactory func(ctx context.Context, providerType, region string) (provider.Provider, error)
+
+// ControllerDeps contains dependencies for the Controller
+type ControllerDeps struct {
+	CredentialsManager credentials.Manager
+	WireGuardClient    wireguard.Client
+	ProviderFactory    ProviderFactory
+}
 
 // Controller manages the VPN lifecycle state machine
 type Controller struct {
@@ -22,6 +38,19 @@ type Controller struct {
 
 	// Cancellation support
 	cancelFunc context.CancelFunc // For aborting current operation
+
+	// Dependencies (injected)
+	credsMgr        credentials.Manager
+	wgClient        wireguard.Client
+	providerFactory ProviderFactory
+
+	// Configuration
+	config *config.Config
+
+	// Active session state (populated during connect)
+	activeProvider provider.Provider
+	serverInfo     *provider.ServerInfo
+	clientKeyPair  *wireguard.KeyPair
 }
 
 // validTransitions defines allowed state transitions
@@ -52,11 +81,21 @@ var validTransitions = map[State]map[State]bool{
 	},
 }
 
-// NewController creates a new Controller instance
-func NewController() *Controller {
+// NewController creates a new Controller instance with the given dependencies
+func NewController(deps ControllerDeps) *Controller {
 	return &Controller{
-		state: StateDisconnected,
+		state:           StateDisconnected,
+		credsMgr:        deps.CredentialsManager,
+		wgClient:        deps.WireGuardClient,
+		providerFactory: deps.ProviderFactory,
 	}
+}
+
+// SetConfig sets the configuration for the controller
+func (c *Controller) SetConfig(cfg *config.Config) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.config = cfg
 }
 
 // State returns the current state (thread-safe)
@@ -201,33 +240,109 @@ func (c *Controller) setState(newState State, message string) error {
 	return nil
 }
 
-// doConnect performs the connection process (stub implementation)
+// doConnect performs the connection process
 func (c *Controller) doConnect(ctx context.Context) {
-	// STUB: Simulate provisioning
-	select {
-	case <-ctx.Done():
-		c.handleError(ctx.Err(), "Operation cancelled during provisioning")
+	// Step 1: Validate configuration
+	c.mu.RLock()
+	cfg := c.config
+	c.mu.RUnlock()
+
+	if cfg == nil {
+		c.handleError(ctx, fmt.Errorf("no configuration set"), "Configuration required")
 		return
-	case <-time.After(2 * time.Second):
-		// Continue
+	}
+
+	if err := config.Validate(cfg); err != nil {
+		c.handleError(ctx, err, fmt.Sprintf("Invalid configuration: %v", err))
+		return
+	}
+
+	// Check for cancellation
+	if ctx.Err() != nil {
+		c.handleError(ctx, ctx.Err(), "Operation cancelled")
+		return
+	}
+
+	// Step 2: Create provider via factory function
+	if c.providerFactory == nil {
+		c.handleError(ctx, fmt.Errorf("no provider factory configured"), "Provider factory required")
+		return
+	}
+
+	prov, err := c.providerFactory(ctx, cfg.Provider, cfg.Region)
+	if err != nil {
+		c.handleError(ctx, err, fmt.Sprintf("Failed to create provider: %v", err))
+		return
 	}
 
 	c.mu.Lock()
-	if err := c.setState(StateConnecting, "Establishing connection..."); err != nil {
+	c.activeProvider = prov
+	c.mu.Unlock()
+
+	// Step 3: Validate credentials
+	if err := prov.ValidateCredentials(ctx); err != nil {
+		c.handleError(ctx, err, fmt.Sprintf("Invalid credentials: %v", err))
+		return
+	}
+
+	// Check for cancellation
+	if ctx.Err() != nil {
+		c.handleError(ctx, ctx.Err(), "Operation cancelled")
+		return
+	}
+
+	// Step 4: Generate WireGuard key pair
+	keyPair, err := wireguard.GenerateKeyPair()
+	if err != nil {
+		c.handleError(ctx, err, fmt.Sprintf("Failed to generate key pair: %v", err))
+		return
+	}
+
+	c.mu.Lock()
+	c.clientKeyPair = keyPair
+	c.mu.Unlock()
+
+	// Step 5: Provision infrastructure (already in Provisioning state)
+	serverInfo, err := prov.Provision(ctx, provider.ProvisionConfig{
+		Region:       cfg.Region,
+		InstanceType: cfg.InstanceType,
+	})
+	if err != nil {
+		c.handleError(ctx, err, fmt.Sprintf("Failed to provision infrastructure: %v", err))
+		return
+	}
+
+	c.mu.Lock()
+	c.serverInfo = serverInfo
+	c.mu.Unlock()
+
+	// Check for cancellation
+	if ctx.Err() != nil {
+		c.handleError(ctx, ctx.Err(), "Operation cancelled during provisioning")
+		return
+	}
+
+	// Step 6: Transition to Connecting
+	c.mu.Lock()
+	if err := c.setState(StateConnecting, "Establishing VPN connection..."); err != nil {
 		c.mu.Unlock()
+		c.handleError(ctx, err, "Failed to transition to connecting state")
 		return
 	}
 	c.mu.Unlock()
 
-	// STUB: Simulate connecting
-	select {
-	case <-ctx.Done():
-		c.handleError(ctx.Err(), "Operation cancelled during connection")
+	// Step 7: Connect WireGuard
+	if c.wgClient == nil {
+		c.handleError(ctx, fmt.Errorf("no WireGuard client configured"), "WireGuard client required")
 		return
-	case <-time.After(2 * time.Second):
-		// Continue
 	}
 
+	if err := c.wgClient.Connect(ctx, serverInfo, keyPair); err != nil {
+		c.handleError(ctx, err, fmt.Sprintf("Failed to connect WireGuard: %v", err))
+		return
+	}
+
+	// Step 8: Transition to Connected
 	c.mu.Lock()
 	if err := c.setState(StateConnected, "Connected successfully"); err != nil {
 		c.mu.Unlock()
@@ -236,41 +351,51 @@ func (c *Controller) doConnect(ctx context.Context) {
 	c.mu.Unlock()
 }
 
-// doDisconnect performs the disconnection process (stub implementation)
+// doDisconnect performs the disconnection process
 func (c *Controller) doDisconnect(ctx context.Context) {
-	// STUB: Simulate disconnecting
-	select {
-	case <-ctx.Done():
-		// For disconnect, we continue even if cancelled to ensure cleanup
-	case <-time.After(1 * time.Second):
-		// Continue
+	// Step 1: Disconnect WireGuard (log errors but continue)
+	if c.wgClient != nil {
+		if err := c.wgClient.Disconnect(ctx); err != nil {
+			log.Printf("Warning: failed to disconnect WireGuard: %v", err)
+		}
 	}
 
+	// Step 2: Transition to Deprovisioning
 	c.mu.Lock()
 	if err := c.setState(StateDeprovisioning, "Cleaning up resources..."); err != nil {
 		c.mu.Unlock()
+		log.Printf("Warning: failed to transition to deprovisioning: %v", err)
 		return
 	}
+	activeProvider := c.activeProvider
 	c.mu.Unlock()
 
-	// STUB: Simulate deprovisioning
-	select {
-	case <-ctx.Done():
-		// Continue cleanup regardless
-	case <-time.After(1 * time.Second):
-		// Continue
+	// Step 3: Deprovision infrastructure (log errors but continue)
+	if activeProvider != nil {
+		if err := activeProvider.Deprovision(ctx); err != nil {
+			log.Printf("Warning: failed to deprovision infrastructure: %v", err)
+		}
 	}
 
+	// Step 4: Clear session state
+	c.mu.Lock()
+	c.activeProvider = nil
+	c.serverInfo = nil
+	c.clientKeyPair = nil
+	c.mu.Unlock()
+
+	// Step 5: Transition to Disconnected
 	c.mu.Lock()
 	if err := c.setState(StateDisconnected, "Disconnected"); err != nil {
 		c.mu.Unlock()
+		log.Printf("Warning: failed to transition to disconnected: %v", err)
 		return
 	}
 	c.mu.Unlock()
 }
 
 // handleError is called when an error occurs during operations
-func (c *Controller) handleError(err error, message string) {
+func (c *Controller) handleError(ctx context.Context, err error, message string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -287,21 +412,52 @@ func (c *Controller) handleError(err error, message string) {
 	}
 
 	// Attempt cleanup in background
-	go c.cleanup()
+	// Note: We pass the original context but cleanup may use its own
+	// context if needed to ensure resources are freed
+	go c.cleanup(ctx)
 }
 
 // cleanup performs cleanup after error
-func (c *Controller) cleanup() {
-	// STUB: In future, this will:
-	// 1. Call provider.Deprovision()
-	// 2. Tear down WireGuard tunnel
-	// 3. Release resources
+// Note: We intentionally use a fresh context for cleanup operations
+// to ensure they complete even if the original context was cancelled.
+// This is critical to avoid leaving cloud resources running.
+//
+//nolint:contextcheck // Intentionally using fresh context for cleanup
+func (c *Controller) cleanup(_ context.Context) {
+	// Use a fresh context for cleanup to ensure it completes
+	// even if the original context was cancelled
+	cleanupCtx := context.Background()
 
-	time.Sleep(500 * time.Millisecond) // Simulate cleanup
+	// Step 1: Check if WireGuard is connected and disconnect if so
+	if c.wgClient != nil {
+		status := c.wgClient.Status()
+		if status.Connected {
+			if err := c.wgClient.Disconnect(cleanupCtx); err != nil {
+				log.Printf("Warning: failed to disconnect WireGuard during cleanup: %v", err)
+			}
+		}
+	}
 
+	// Step 2: Check if provider exists and deprovision if so
+	c.mu.Lock()
+	activeProvider := c.activeProvider
+	c.mu.Unlock()
+
+	if activeProvider != nil {
+		if err := activeProvider.Deprovision(cleanupCtx); err != nil {
+			log.Printf("Warning: failed to deprovision during cleanup: %v", err)
+		}
+	}
+
+	// Step 3: Clear session state
+	c.mu.Lock()
+	c.activeProvider = nil
+	c.serverInfo = nil
+	c.clientKeyPair = nil
+	c.mu.Unlock()
+
+	// Step 4: Transition back to Disconnected after cleanup
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	// Transition back to Disconnected after cleanup
 	_ = c.setState(StateDisconnected, "Cleanup completed")
 }
