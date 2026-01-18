@@ -89,32 +89,52 @@ func (s *SettingsWindow) SetOnStarted(callback func(fyne.App)) {
 	s.onStarted = callback
 }
 
-// Show displays the settings window
+// Show displays the settings window.
+// This method is safe to call from any goroutine - it schedules UI operations
+// on the main Fyne thread to avoid thread safety issues.
 func (s *SettingsWindow) Show() {
+	// Get fyneApp reference under lock
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.fyneApp == nil {
 		s.fyneApp = app.New()
 	}
+	fyneApp := s.fyneApp
+	alreadyCreated := s.window != nil
+	s.mu.Unlock()
 
-	if s.window == nil {
-		s.createWindow()
-	}
+	// Schedule all UI operations on the main Fyne thread
+	fyne.DoAndWait(fyneApp, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
-	s.loadConfigToForm()
-	s.window.Show()
-	s.visible = true
+		// Double-check window creation in case another goroutine created it
+		if !alreadyCreated && s.window == nil {
+			s.createWindow()
+		}
+
+		s.loadConfigToForm()
+		s.window.Show()
+		s.visible = true
+	})
 }
 
-// Hide hides the settings window
+// Hide hides the settings window.
+// This method is safe to call from any goroutine.
 func (s *SettingsWindow) Hide() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	fyneApp := s.fyneApp
+	window := s.window
+	s.mu.Unlock()
 
-	if s.window != nil {
-		s.window.Hide()
-		s.visible = false
+	if window != nil && fyneApp != nil {
+		fyne.DoAndWait(fyneApp, func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if s.window != nil {
+				s.window.Hide()
+				s.visible = false
+			}
+		})
 	}
 }
 
