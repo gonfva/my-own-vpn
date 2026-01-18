@@ -130,7 +130,11 @@ jobs:
       - name: Build
         run: |
           mkdir -p dist
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o dist/${{ matrix.artifact }} ./cmd/my-own-vpn
+          LDFLAGS=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            LDFLAGS="-H windowsgui"
+          fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="$LDFLAGS" -o dist/${{ matrix.artifact }} ./cmd/my-own-vpn
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v6
