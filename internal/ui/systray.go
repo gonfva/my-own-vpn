@@ -34,6 +34,7 @@ type TrayApp struct {
 	mDisconnect *fyne.MenuItem
 	mSettings   *fyne.MenuItem
 	mCost       *fyne.MenuItem
+	mConsole    *fyne.MenuItem
 
 	// Callbacks
 	onConnect    func()
@@ -115,6 +116,14 @@ func (t *TrayApp) Setup() {
 		t.mCost = fyne.NewMenuItem("Session Cost: $0.00", nil)
 		t.mCost.Disabled = true
 
+		t.mConsole = fyne.NewMenuItem("Show Console", func() {
+			t.toggleConsole()
+		})
+		// Console toggle is only available on Windows
+		if !IsWindows() {
+			t.mConsole.Disabled = true
+		}
+
 		quitItem := fyne.NewMenuItem("Quit", func() {
 			t.mu.RLock()
 			cb := t.onQuit
@@ -134,6 +143,7 @@ func (t *TrayApp) Setup() {
 			t.mSettings,
 			fyne.NewMenuItemSeparator(),
 			t.mCost,
+			t.mConsole,
 			fyne.NewMenuItemSeparator(),
 			quitItem,
 		)
@@ -282,5 +292,21 @@ func (t *TrayApp) Quit() {
 
 	if app != nil {
 		app.Quit()
+	}
+}
+
+// toggleConsole toggles the console visibility and updates the menu label.
+func (t *TrayApp) toggleConsole() {
+	visible := Console.ToggleConsole()
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.mConsole != nil {
+		if visible {
+			t.mConsole.Label = "Hide Console"
+		} else {
+			t.mConsole.Label = "Show Console"
+		}
 	}
 }

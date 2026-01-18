@@ -1,4 +1,4 @@
-.PHONY: all build test lint fmt clean tools check security tools-security
+.PHONY: all build build-windows test lint fmt clean tools check security tools-security
 
 # Binary name
 BINARY_NAME=my-own-vpn
@@ -6,11 +6,16 @@ VERSION?=dev
 
 # Build flags
 LDFLAGS=-s -w -X main.Version=$(VERSION)
+# Windows-specific LDFLAGS to hide console window
+LDFLAGS_WINDOWS=$(LDFLAGS) -H windowsgui
 
 all: lint test build
 
 build:
 	go build -ldflags="$(LDFLAGS)" -o $(BINARY_NAME) ./cmd/my-own-vpn
+
+build-windows:
+	GOOS=windows GOARCH=amd64 go build -ldflags="$(LDFLAGS_WINDOWS)" -o $(BINARY_NAME).exe ./cmd/my-own-vpn
 
 test:
 	go test -v -race ./...
