@@ -98,12 +98,11 @@ func (s *SettingsWindow) Show() {
 	if s.fyneApp == nil {
 		s.fyneApp = app.New()
 	}
-	fyneApp := s.fyneApp
 	alreadyCreated := s.window != nil
 	s.mu.Unlock()
 
 	// Schedule all UI operations on the main Fyne thread
-	fyne.DoAndWait(fyneApp, func() {
+	fyne.DoAndWait(func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 
@@ -122,12 +121,11 @@ func (s *SettingsWindow) Show() {
 // This method is safe to call from any goroutine.
 func (s *SettingsWindow) Hide() {
 	s.mu.Lock()
-	fyneApp := s.fyneApp
 	window := s.window
 	s.mu.Unlock()
 
-	if window != nil && fyneApp != nil {
-		fyne.DoAndWait(fyneApp, func() {
+	if window != nil {
+		fyne.DoAndWait(func() {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			if s.window != nil {
