@@ -121,13 +121,3 @@ func (c *windowsConsoleController) redirectStdHandles() error {
 
 	return nil
 }
-
-// IsWindows returns true on Windows.
-func IsWindows() bool {
-	return true
-}
-
-// ConsoleSupportedMsg returns empty string on Windows since console is supported.
-func ConsoleSupportedMsg() string {
-	return ""
-}

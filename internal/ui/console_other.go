@@ -30,13 +30,3 @@ func (c *noopConsoleController) IsConsoleVisible() bool {
 func (c *noopConsoleController) ToggleConsole() bool {
 	return false
 }
-
-// IsWindows returns false on non-Windows platforms.
-func IsWindows() bool {
-	return false
-}
-
-// ConsoleSupportedMsg returns a message indicating console toggle is not supported.
-func ConsoleSupportedMsg() string {
-	return "Console toggle is only available on Windows"
-}

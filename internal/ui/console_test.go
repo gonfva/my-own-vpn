@@ -13,26 +13,12 @@ func TestConsoleControllerExists(t *testing.T) {
 	}
 }
 
-func TestIsWindows(t *testing.T) {
+func TestIsWindowsConsistency(t *testing.T) {
 	isWin := IsWindows()
 	actuallyWindows := runtime.GOOS == "windows"
 
 	if isWin != actuallyWindows {
 		t.Errorf("IsWindows() = %v, but runtime.GOOS = %v", isWin, runtime.GOOS)
-	}
-}
-
-func TestConsoleSupportedMsg(t *testing.T) {
-	msg := ConsoleSupportedMsg()
-
-	if runtime.GOOS == "windows" {
-		if msg != "" {
-			t.Errorf("expected empty message on Windows, got %q", msg)
-		}
-	} else {
-		if msg == "" {
-			t.Error("expected non-empty message on non-Windows platforms")
-		}
 	}
 }
 
@@ -48,8 +34,7 @@ func TestConsoleOperations(t *testing.T) {
 			t.Error("ShowConsole should return false on non-Windows")
 		}
 		if Console.HideConsole() {
-			// HideConsole returns true when already hidden on Windows implementation
-			// but for noop, it returns false
+			t.Error("HideConsole should return false on non-Windows")
 		}
 		if Console.ToggleConsole() {
 			t.Error("ToggleConsole should return false on non-Windows")
