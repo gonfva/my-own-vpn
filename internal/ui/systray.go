@@ -28,6 +28,9 @@ type TrayApp struct {
 	state   ConnectionState
 	cost    string
 
+	// Menu reference for refreshing
+	menu *fyne.Menu
+
 	// Menu items
 	mStatus     *fyne.MenuItem
 	mConnect    *fyne.MenuItem
@@ -135,7 +138,7 @@ func (t *TrayApp) Setup() {
 		})
 
 		// Build the menu
-		menu := fyne.NewMenu("My Own VPN",
+		t.menu = fyne.NewMenu("My Own VPN",
 			t.mStatus,
 			fyne.NewMenuItemSeparator(),
 			t.mConnect,
@@ -152,7 +155,15 @@ func (t *TrayApp) Setup() {
 		t.mDisconnect.Disabled = true
 		t.mCost.Disabled = true
 
-		desk.SetSystemTrayMenu(menu)
+		desk.SetSystemTrayMenu(t.menu)
+	}
+}
+
+// refreshMenu refreshes the system tray menu to reflect updated item states.
+// Must be called with lock held.
+func (t *TrayApp) refreshMenu() {
+	if t.menu != nil {
+		t.menu.Refresh()
 	}
 }
 
@@ -191,6 +202,7 @@ func (t *TrayApp) UpdateStatus(status string, connected bool) {
 	}
 
 	t.mStatus.Label = "Status: " + status
+	t.refreshMenu()
 }
 
 // SetConnecting updates the UI for connecting state
@@ -215,6 +227,7 @@ func (t *TrayApp) SetConnecting() {
 	t.mStatus.Label = "Status: Connecting..."
 	t.mConnect.Disabled = true
 	t.mDisconnect.Disabled = true
+	t.refreshMenu()
 }
 
 // SetDisconnecting updates the UI for disconnecting state
@@ -239,6 +252,7 @@ func (t *TrayApp) SetDisconnecting() {
 	t.mStatus.Label = "Status: Disconnecting..."
 	t.mConnect.Disabled = true
 	t.mDisconnect.Disabled = true
+	t.refreshMenu()
 }
 
 // UpdateCost updates the displayed session cost
@@ -249,6 +263,7 @@ func (t *TrayApp) UpdateCost(cost string) {
 	t.cost = cost
 	if t.mCost != nil {
 		t.mCost.Label = "Session Cost: " + cost
+		t.refreshMenu()
 	}
 }
 
@@ -275,6 +290,7 @@ func (t *TrayApp) SetError(message string) {
 	t.mConnect.Disabled = false
 	t.mDisconnect.Disabled = true
 	t.mCost.Disabled = true
+	t.refreshMenu()
 }
 
 // GetState returns the current connection state
@@ -308,5 +324,6 @@ func (t *TrayApp) toggleConsole() {
 		} else {
 			t.mConsole.Label = "Show Console"
 		}
+		t.refreshMenu()
 	}
 }
