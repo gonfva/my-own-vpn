@@ -11,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.6
 	github.com/danieljoos/wincred v1.2.3
 	github.com/gen2brain/beeep v0.11.2
-	github.com/hetznercloud/hcloud-go/v2 v2.34.0
+	github.com/hetznercloud/hcloud-go/v2 v2.35.0
 	github.com/keybase/go-keychain v0.0.1
 	golang.org/x/crypto v0.47.0
 	golang.org/x/sys v0.40.0
@@ -71,7 +71,7 @@ require (
 	github.com/yuin/goldmark v1.7.8 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/image v0.24.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
